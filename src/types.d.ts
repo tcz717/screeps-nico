@@ -1,4 +1,4 @@
-type TaskMemory = MoveTaskMemory | HarvestTaskMemory;
+type TaskMemory = MoveTaskMemory | HarvestTaskMemory | TransferTaskMemory | UpgradeControllerTaskMemory;
 
 declare const enum TaskType {
   Idle = "i",
@@ -27,6 +27,10 @@ interface HarvestTaskMemory extends TaskMemoryBase {
 }
 interface TransferTaskMemory extends TaskMemoryBase {
   type: TaskType.Transfer;
+  resource: ResourceConstant;
+}
+interface UpgradeControllerTaskMemory extends TaskMemoryBase {
+  type: TaskType.UpgradeController;
 }
 
 interface Role {

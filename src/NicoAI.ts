@@ -4,6 +4,7 @@ import { loadTask, Task, Excutable, PRIORITY_NORMAL, TaskResult } from "task";
 export class NicoAI {
     room: Room;
     mainSpawn!: StructureSpawn;
+    toRemoveTasks: TaskMemory[] = []
     get workers(): Creep[] { return this.room.find(FIND_MY_CREEPS) }
     update(): void {
 
@@ -27,6 +28,11 @@ export class NicoAI {
         this.excuteTasks();
         this.assignTasks();
         this.generateTasks();
+
+        _.pull(this.room.memory.assignedTasks, ...this.toRemoveTasks);
+        _.pull(this.room.memory.taskQueue, ...this.toRemoveTasks);
+        _.remove(this.room.memory.taskQueue, task => loadTask(task).isFinished());
+        this.toRemoveTasks = [];
     }
     assignTasks(): void {
         while (this.room.memory.taskQueue.length) {
@@ -47,7 +53,7 @@ export class NicoAI {
         }
     }
     excuteTasks(): void {
-        _.remove(this.room.memory.assignedTasks,memory => {
+        _.remove(this.room.memory.assignedTasks, memory => {
             const task = loadTask(memory);
             const result = task.excute();
             if (result != TaskResult.Working && result != TaskResult.Acceptable) {
@@ -60,16 +66,27 @@ export class NicoAI {
         });
     }
     generateTasks(): void {
-        const sources = this.room.find(FIND_SOURCES);
-        const aveHarvester = _.max([this.workers.length / sources.length, 1]);
-        for (const source of sources) {
-            if (this.getObjectTaskNumber(source.id, TaskType.Harvest) < aveHarvester) {
+        // const sources = this.room.find(FIND_SOURCES);
+        // const aveHarvester = _.max([this.workers.length / sources.length, 1]);
+        // for (const source of sources) {
+        //     if (this.getObjectTaskNumber(source.id, TaskType.Harvest) < aveHarvester) {
+        //         this.pushTask({
+        //             type: TaskType.Harvest,
+        //             targetId: source.id,
+        //             priority: PRIORITY_NORMAL,
+        //         })
+        //     }
+        // }
+        for (let s of this.room.find<StructureExtension | StructureSpawn>(FIND_MY_STRUCTURES, {
+            filter: structure => structure.structureType == STRUCTURE_EXTENSION || structure.structureType == STRUCTURE_SPAWN
+        })) {
+            if (s.energy < s.energyCapacity)
                 this.pushTask({
-                    type: TaskType.Harvest,
-                    targetId: source.id,
+                    type: TaskType.Transfer,
+                    targetId: s.id,
+                    resource: RESOURCE_ENERGY,
                     priority: PRIORITY_NORMAL,
-                })
-            }
+                }, 1);
         }
     }
 
@@ -88,15 +105,17 @@ export class NicoAI {
             if (target instanceof Creep)
                 target.memory.working = false;
         }
-        _.pull(this.room.memory.assignedTasks, memory);
-        _.pull(this.room.memory.taskQueue, memory);
+        this.toRemoveTasks.push(memory);
     }
-    pushTask(memory: TaskMemory): void {
-        this.room.memory.taskQueue.push(memory);
-        if (memory.targetId)
+    pushTask(memory: TaskMemory, maxCount?: number): void {
+        const count = maxCount && memory.targetId ? maxCount - this.getObjectTaskNumber(memory.targetId, memory.type) : 1;
+        for (let i = 0; i < count; ++i)
+            this.room.memory.taskQueue.push(memory);
+        if (memory.targetId && count > 0) {
             _.set(this.room.memory.objects,
                 [memory.targetId, memory.type],
-                this.getObjectTaskNumber(memory.targetId, memory.type) + 1);
+                this.getObjectTaskNumber(memory.targetId, memory.type) + count);
+        }
     }
     getObjectTaskNumber(objectId: string, task: TaskType): number {
         if (this.room.memory.objects[objectId] && this.room.memory.objects[objectId][task])
