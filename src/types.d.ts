@@ -1,5 +1,22 @@
-type TaskMemory = MoveTaskMemory | HarvestTaskMemory | TransferTaskMemory | UpgradeControllerTaskMemory;
+type TaskMemory = MoveTaskMemory
+  | HarvestTaskMemory
+  | TransferTaskMemory
+  | UpgradeControllerTaskMemory
+  | BuildTaskMemory
+  | RepairTaskMemory;
 
+declare const enum TaskResult {
+  /** 已完成 */
+  Finished = "finished",
+  /** 尚未完成 */
+  Working = "working",
+  /** 失败，当任务仍然可以分配给其他执行者 */
+  Fail = "fail",
+  /** 失败，且不可继续 */
+  Fatal = "fatal",
+  /** 尚未完成，但是可以被移交或暂停 */
+  Acceptable = "acceptable",
+}
 declare const enum TaskType {
   Idle = "i",
   Move = "m",
@@ -10,11 +27,14 @@ declare const enum TaskType {
   Repair = "r",
 }
 interface TaskMemoryBase {
-  excutorId?: string;
-  targetId?: string;
   type: string;
   priority: number;
+  lastResult?: TaskResult;
+  excutorId?: string;
+  targetId?: string;
+  startTick?: number;
   child?: TaskMemory[];
+  uninterruptible?: boolean;
 }
 
 interface MoveTaskMemory extends TaskMemoryBase {
@@ -24,6 +44,7 @@ interface MoveTaskMemory extends TaskMemoryBase {
 }
 interface HarvestTaskMemory extends TaskMemoryBase {
   type: TaskType.Harvest;
+  reachTick?: number;
 }
 interface TransferTaskMemory extends TaskMemoryBase {
   type: TaskType.Transfer;
@@ -31,6 +52,13 @@ interface TransferTaskMemory extends TaskMemoryBase {
 }
 interface UpgradeControllerTaskMemory extends TaskMemoryBase {
   type: TaskType.UpgradeController;
+  level?: number;
+}
+interface BuildTaskMemory extends TaskMemoryBase {
+  type: TaskType.Build;
+}
+interface RepairTaskMemory extends TaskMemoryBase {
+  type: TaskType.Repair;
 }
 
 interface Role {
@@ -52,10 +80,11 @@ interface SpawnMemory {
 
 interface RoomMemory {
   expectedLevel: number;
-  expectedWOrkers: number;
+  expectedWorkers: number;
   assignedTasks: TaskMemory[];
   taskQueue: TaskMemory[];
   objects: { [key: string]: ObjectMemory };
+  sources: { [key: string]: number };
 }
 
 interface Memory {

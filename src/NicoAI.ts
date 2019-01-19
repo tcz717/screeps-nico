@@ -1,5 +1,6 @@
-import Worker from "worker";
-import { loadTask, Task, Excutable, PRIORITY_NORMAL, TaskResult } from "task";
+import { loadTask, Task, Excutable, PRIORITY_NORMAL, PRIORITY_HIGH, PRIORITY_LOW } from "task";
+import _ from "lodash"
+import { worker } from "cluster";
 
 export class NicoAI {
     room: Room;
@@ -8,7 +9,7 @@ export class NicoAI {
     get workers(): Creep[] { return this.room.find(FIND_MY_CREEPS) }
     update(): void {
 
-        if (this.room.find(FIND_MY_CREEPS).length < 2 && !this.mainSpawn.spawning) {
+        if (this.room.find(FIND_MY_CREEPS).length < this.room.memory.expectedWorkers && !this.mainSpawn.spawning) {
             var newName = 'Worker' + Game.time;
             this.mainSpawn.spawnCreep([WORK, CARRY, MOVE], newName, {
                 memory: {
@@ -16,67 +17,107 @@ export class NicoAI {
                 }
             });
         }
-        if (this.mainSpawn.spawning) {
-            var spawningCreep = Game.creeps[this.mainSpawn.spawning!.name];
-            this.room.visual.text(
-                '\u{1F3ED}' + spawningCreep.memory.role,
-                this.mainSpawn.pos.x + 1,
-                this.mainSpawn.pos.y,
-                { align: 'left', opacity: 0.8 });
-        }
 
         this.excuteTasks();
         this.assignTasks();
         this.generateTasks();
-
-        _.pull(this.room.memory.assignedTasks, ...this.toRemoveTasks);
-        _.pull(this.room.memory.taskQueue, ...this.toRemoveTasks);
-        _.remove(this.room.memory.taskQueue, task => loadTask(task).isFinished());
-        this.toRemoveTasks = [];
     }
     assignTasks(): void {
-        while (this.room.memory.taskQueue.length) {
-            let idleWorkers = this.room.find(FIND_MY_CREEPS, {
+        let queue: (TaskMemory | undefined)[] = _.orderBy(this.room.memory.taskQueue, "priority", "desc");
+        for (let index = 0; index < queue.length; index++) {
+            const memory = queue[index];
+            if (!memory)
+                break;
+            let task = loadTask(memory);
+            let idler = _(this.room.find(FIND_MY_CREEPS, {
                 filter: worker => !worker.memory.working && !worker.spawning
-            });
-            if (!idleWorkers.length)
-                return;
-            let task = loadTask(this.room.memory.taskQueue[0]);
-            for (const worker of idleWorkers) {
-                if (task.canExcute(worker)) {
-                    this.assignTask(task, worker);
+            }))
+                .map(creep => <[Creep, Number]>[creep, task.canExcute(creep)])
+                .filter(tuple => tuple[1] > 0)
+                .maxBy(1);
+            if (!idler) {
+                const interruptee = _(this.room.memory.assignedTasks)
+                    .filter((memory: TaskMemory) => !memory.uninterruptible && memory.priority < task.memory.priority && memory.lastResult == TaskResult.Acceptable)
+                    .map((memory: TaskMemory) => {
+                        const creep = Game.getObjectById<Creep>(memory.excutorId);
+                        const task = loadTask(memory);
+                        return <[Creep, Number, Task]>[creep, task.canExcute(creep!), task]
+                    })
+                    .filter(tuple => tuple[1] > 0)
+                    .maxBy(1);
+                if (interruptee) {
+                    _.remove(this.room.memory.assignedTasks, interruptee[2].memory);
+                    interruptee[2].reset();
+                    queue.push(interruptee[2].memory);
+                    idler = [interruptee[0], interruptee[1]];
+                    console.log(`task ${interruptee[2].memory.type} is interrupted by ${memory.type}`)
                 }
             }
-            // 暂时采取等待的策略 直到队首任务可以分配
-            if (!task.memory.excutorId)
-                return;
+            if (idler) {
+                this.assignTask(task, idler[0]);
+                queue[index] = undefined;
+            }
         }
+        this.room.memory.taskQueue = _.compact(queue);
     }
     excuteTasks(): void {
-        _.remove(this.room.memory.assignedTasks, memory => {
+        for (const memory of this.room.memory.assignedTasks) {
             const task = loadTask(memory);
             const result = task.excute();
             if (result != TaskResult.Working && result != TaskResult.Acceptable) {
-                console.log("drop task " + memory.type + " because " + TaskResult[result]);
+                task.drop(result);
                 this.popTask(memory);
-                return true;
             }
+        };
 
-            return false;
+        // 🆑清除失效的任务和存储
+        _.filter(this.room.memory.taskQueue, task => loadTask(task).isFinished()).forEach(memory => {
+            console.log(`detect task ${memory.type} is finished and omit it`);
+            this.popTask(memory);
         });
+        _.pull(this.room.memory.assignedTasks, ...this.toRemoveTasks);
+        _.pull(this.room.memory.taskQueue, ...this.toRemoveTasks);
+        for (const key in this.room.memory.objects) {
+            if (!Game.getObjectById(key))
+                delete this.room.memory.objects[key];
+        }
+        this.toRemoveTasks = [];
     }
     generateTasks(): void {
-        // const sources = this.room.find(FIND_SOURCES);
-        // const aveHarvester = _.max([this.workers.length / sources.length, 1]);
-        // for (const source of sources) {
-        //     if (this.getObjectTaskNumber(source.id, TaskType.Harvest) < aveHarvester) {
-        //         this.pushTask({
-        //             type: TaskType.Harvest,
-        //             targetId: source.id,
-        //             priority: PRIORITY_NORMAL,
-        //         })
-        //     }
-        // }
+        if (this.room.controller && this.room.controller.level < this.room.memory.expectedLevel)
+            this.pushTask({
+                type: TaskType.UpgradeController,
+                targetId: this.room.controller.id,
+                priority: PRIORITY_NORMAL,
+                level: this.room.memory.expectedLevel,
+            }, 1);
+        if (this.room.controller && this.room.controller.ticksToDowngrade < 5000)
+            this.pushTask({
+                type: TaskType.UpgradeController,
+                targetId: this.room.controller.id,
+                priority: PRIORITY_HIGH,
+            }, 1);
+        for (let s of this.room.find(FIND_CONSTRUCTION_SITES)) {
+            this.pushTask({
+                type: TaskType.Build,
+                targetId: s.id,
+                priority: PRIORITY_NORMAL,
+            }, 1);
+        }
+        for (let s of this.room.find(FIND_MY_STRUCTURES, { filter: struct => struct.hits < struct.hitsMax })) {
+            this.pushTask({
+                type: TaskType.Repair,
+                targetId: s.id,
+                priority: PRIORITY_HIGH,
+            }, 1);
+        }
+        for (let s of this.room.find(FIND_STRUCTURES, { filter: struct => struct.hits < struct.hitsMax && struct.structureType == STRUCTURE_ROAD })) {
+            this.pushTask({
+                type: TaskType.Repair,
+                targetId: s.id,
+                priority: PRIORITY_LOW,
+            }, 1);
+        }
         for (let s of this.room.find<StructureExtension | StructureSpawn>(FIND_MY_STRUCTURES, {
             filter: structure => structure.structureType == STRUCTURE_EXTENSION || structure.structureType == STRUCTURE_SPAWN
         })) {
@@ -94,16 +135,15 @@ export class NicoAI {
         task.assign(excutor);
         if (excutor instanceof Creep)
             excutor.memory.working = true;
-        this.room.memory.taskQueue.shift();
         this.room.memory.assignedTasks.push(task.memory);
     }
     popTask(memory: TaskMemory): void {
         if (memory.targetId)
             this.room.memory.objects[memory.targetId][memory.type] = this.room.memory.objects[memory.targetId][memory.type] - 1;
         if (memory.excutorId) {
-            let target = Game.getObjectById(memory.excutorId);
-            if (target instanceof Creep)
-                target.memory.working = false;
+            let excutor = Game.getObjectById(memory.excutorId);
+            if (excutor instanceof Creep)
+                excutor.memory.working = false;
         }
         this.toRemoveTasks.push(memory);
     }
@@ -130,15 +170,20 @@ export class NicoAI {
                 delete Memory.creeps[name];
             }
         }
+
         this.mainSpawn = _.values<StructureSpawn>(Game.spawns)[0];
         this.room = this.mainSpawn.room;
         if (!this.mainSpawn.room.memory.taskQueue) {
             this.mainSpawn.room.memory = {
                 expectedLevel: 2,
-                expectedWOrkers: 2,
+                expectedWorkers: 2,
                 taskQueue: [],
                 assignedTasks: [],
-                objects: {}
+                objects: {},
+                sources: _.chain(this.room.find(FIND_SOURCES))
+                    .keyBy("id")
+                    .mapValues(source => source.pos.getRangeTo(this.mainSpawn))
+                    .value(),
             }
         }
     }
