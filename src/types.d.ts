@@ -3,7 +3,8 @@ type TaskMemory = MoveTaskMemory
   | TransferTaskMemory
   | UpgradeControllerTaskMemory
   | BuildTaskMemory
-  | RepairTaskMemory;
+  | RepairTaskMemory
+  | SpawnCreepTaskMemory;
 
 declare const enum TaskResult {
   /** 已完成 */
@@ -18,22 +19,26 @@ declare const enum TaskResult {
   Acceptable = "acceptable",
 }
 declare const enum TaskType {
-  Idle = "i",
-  Move = "m",
-  Harvest = "h",
-  Transfer = "t",
-  UpgradeController = "u",
-  Build = "b",
-  Repair = "r",
+  Idle = "idle",
+  Move = "move",
+  Harvest = "harvest",
+  Transfer = "transfer",
+  UpgradeController = "upgrade",
+  Build = "build",
+  Repair = "repair",
+  SpawnCreep = "spawn",
+}
+declare const enum Role {
+  Worker = "Worker",
 }
 interface TaskMemoryBase {
   type: string;
   priority: number;
   lastResult?: TaskResult;
-  excutorId?: string;
   targetId?: string;
   startTick?: number;
   child?: TaskMemory[];
+  tag?: string,
   uninterruptible?: boolean;
 }
 
@@ -52,7 +57,7 @@ interface TransferTaskMemory extends TaskMemoryBase {
 }
 interface UpgradeControllerTaskMemory extends TaskMemoryBase {
   type: TaskType.UpgradeController;
-  level?: number;
+  safeTicks?: number;
 }
 interface BuildTaskMemory extends TaskMemoryBase {
   type: TaskType.Build;
@@ -60,36 +65,45 @@ interface BuildTaskMemory extends TaskMemoryBase {
 interface RepairTaskMemory extends TaskMemoryBase {
   type: TaskType.Repair;
 }
-
-interface Role {
-  run(creep: Creep): void;
+interface SpawnCreepTaskMemory extends TaskMemoryBase {
+  type: TaskType.SpawnCreep;
+  body: BodyPartConstant[];
+  role: Role;
+  corps: string;
+  name?: string;
 }
 
-interface ObjectMemory {
-  [key: string]: number;
+
+interface TaskCounter {
+  [type: string]: { [tag: string]: number };
 }
 
 interface CreepMemory {
-  role: string;
-  working: boolean;
+  role: Role;
+  task?: TaskMemory;
 }
 
 interface SpawnMemory {
-
+  task?: TaskMemory;
 }
-
-interface RoomMemory {
-  expectedLevel: number;
-  expectedWorkers: number;
-  assignedTasks: TaskMemory[];
+interface CorpsMemory {
+  name: string;
+  roomName: string;
+  spawns: string[];
+  creeps: string[];
   taskQueue: TaskMemory[];
-  objects: { [key: string]: ObjectMemory };
+  towers: string[];
+  counter: TaskCounter;
+  nextPolicy: number;
+}
+interface RoomMemory {
   sources: { [key: string]: number };
 }
 
 interface Memory {
   uuid: number;
   log: any;
+  corps: { [name: string]: CorpsMemory }
 }
 
 // `global` extension samples
