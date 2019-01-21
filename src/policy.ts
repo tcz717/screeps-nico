@@ -19,9 +19,10 @@ export const DefaultPolicySet: PolicySet = {
             corps.memory.aveQueueLength / AI_CONFIG.workQueueRatio
             + (controller && controller.level || 0) / AI_CONFIG.upgradeTaskRatio,
             AI_CONFIG.minWorker, AI_CONFIG.maxWorker)
-
-        if (corps.creeps.length < expectedWorker) {
-            const count = expectedWorker - corps.creeps.length;
+        const workerNum: number = _.get(corps.roles, Role.Worker, []).length;
+        
+        if (workerNum < expectedWorker) {
+            const count = expectedWorker - workerNum;
             corps.scheduler.pushTask({
                 type: TaskType.SpawnCreep,
                 priority: PRIORITY_HIGH,

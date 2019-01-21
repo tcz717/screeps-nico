@@ -1,4 +1,4 @@
-import _ from "lodash";
+import _, { Dictionary } from "lodash";
 import { PolicySet } from "policy";
 import { PrioritySchduler, Scheduler } from "scheduler";
 import { loadTask, Excutable } from "task";
@@ -12,6 +12,7 @@ export class Corps {
     readonly spawns: StructureSpawn[];
     readonly excutors: (Creep | StructureSpawn)[];
     readonly name: string;
+    readonly roles: Dictionary<Creep[]>;
 
     constructor(name: string) {
         this.memory = Memory.corps[name];
@@ -20,6 +21,7 @@ export class Corps {
         this.creeps = _(this.memory.creeps).map(name => Game.creeps[name]).compact().value();
         this.spawns = _(this.memory.spawns).map(name => Game.spawns[name]).compact().value();
         this.excutors = _.concat<Excutable>(this.creeps, this.spawns);
+        this.roles = _.groupBy(this.creeps, creep => creep.memory.role);
         this.scheduler = new PrioritySchduler(this);
     }
 

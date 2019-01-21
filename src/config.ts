@@ -2,7 +2,7 @@ export const AI_CONFIG = {
     sourceLearningRate: 0.3,
     queueLearningRate: 0.1,
     workQueueRatio: 4,
-    maxWorker: 10,
+    maxWorker: 6,
     minWorker: 2,
     roadHitsTolerance: 0.6,
     defenceHitsTolerance: 0.05,

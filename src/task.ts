@@ -23,6 +23,7 @@ export interface Task {
     /** 用于处理任务结束的收尾 */
     drop(): void;
 }
+
 /** 移动任务 */
 export class MoveTask implements Task {
     memory: MoveTaskMemory;
