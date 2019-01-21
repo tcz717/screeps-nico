@@ -7,6 +7,7 @@ export interface Scheduler {
     pushTask(memory: TaskMemory, maxCount?: number): void
     getTaskNumber(task: TaskMemory): number
     schedule(): void;
+    shutdownTask(memory?: TaskMemory): void;
 }
 
 export class PrioritySchduler implements Scheduler {
@@ -22,24 +23,27 @@ export class PrioritySchduler implements Scheduler {
         if (memory.tag)
             this.corpsMemory.counter[memory.type][memory.tag] -= 1;
     }
-    pushTask(memory: TaskMemory, maxCount?: number | undefined): void {
-        const count = maxCount && memory.tag ? maxCount - this.getTaskNumber(memory) : 1;
+    pushTask(memory: TaskMemory, maxCount?: number): void {
+        let count = maxCount != undefined && memory.tag ? maxCount - this.getTaskNumber(memory) : 1;
+        count = Math.floor(count);
+        // console.log(memory.type, count, maxCount, this.getTaskNumber(memory));
         for (let i = 0; i < count; ++i)
             this.corpsMemory.taskQueue.push(memory);
         if (memory.tag && count > 0) {
-            _.set(this.corpsMemory.counter, [memory.type, memory.tag],
-                this.getTaskNumber(memory) + count);
+            _.update(this.corpsMemory.counter, [memory.type, memory.tag],
+                old => (old || 0) + count);
         }
     }
     getTaskNumber(task: TaskMemory): number {
         return _.get(this.corpsMemory.counter, [task.type, task.tag || "unknown"], 0);
     }
     schedule(): void {
+        this.checkReset();
         // 🆑清除无用的任务
         this.cleanTaskQueue();
         // 清除结束的任务
         this.cleanStopedTask();
-        this.cleanDiedExcutor();
+
         let queue: (TaskMemory | undefined)[] = _.orderBy(this.corpsMemory.taskQueue, "priority", "desc");
         for (let index = 0; index < queue.length; index++) {
             const memory = queue[index];
@@ -63,6 +67,8 @@ export class PrioritySchduler implements Scheduler {
             }
         }
         this.corpsMemory.taskQueue = _.compact(queue);
+        
+        this.cleanCounter();
     }
 
     private findInterruptableExcutor(task: import("task").Task) {
@@ -107,23 +113,27 @@ export class PrioritySchduler implements Scheduler {
         });
     }
 
-    private cleanDiedExcutor() {
-        for (const name in this.corpsMemory.creeps) {
-            if (!(name in Memory.creeps))
-                continue;
-            const task = Memory.creeps[name].task;
-            if (!(name in Game.creeps) && task) {
+    private checkReset() {
+        if (this.corpsMemory.reset) {
+            for (const task of this.corps.memory.taskQueue) {
                 this.popTask(task);
             }
+            this.corpsMemory.taskQueue = [];
+            delete this.corpsMemory.reset;
+            console.log(`RESET TASKQUEUE of ${this.corpsMemory.name}`)
         }
+    }
 
-        for (const name in this.corpsMemory.spawns) {
-            if (!(name in Memory.spawns))
-                continue;
-            const task = Memory.spawns[name].task;
-            if (!(name in Game.spawns) && task) {
-                this.popTask(task);
-            }
+    private cleanCounter() {
+        for (const task in this.corpsMemory.counter) {
+            this.corpsMemory.counter[task] = _.pickBy(this.corpsMemory.counter[task], _.identity);
+        }
+    }
+
+    shutdownTask(memory?: TaskMemory) {
+        if (memory) {
+            this.popTask(memory);
+            console.log(`shutdown ${memory.type} task`)
         }
     }
 }

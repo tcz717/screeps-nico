@@ -1,19 +1,31 @@
 import { Corps } from "corps";
 import { PRIORITY_HIGH, PRIORITY_NORMAL, PRIORITY_LOW } from "task";
+import { AI_CONFIG } from "config";
+import _, { Dictionary } from "lodash";
+
+function calcBestWorker(energy: number): BodyPartConstant[] {
+    const basic = [WORK, CARRY, MOVE];
+    const count = _.clamp(_.floor(energy / _.sumBy(basic, part => BODYPART_COST[part])), 1, 3);
+    return _.flatten(_.times(count, _.constant(basic)));
+}
 
 type Policy = (corps: Corps) => void;
-export interface PolicySet {
-    [name: string]: Policy
-}
+export type PolicySet = Dictionary<Policy>;
 
 export const DefaultPolicySet: PolicySet = {
     SpawnWorker: (corps: Corps) => {
-        if (corps.creeps.length < 2) {
-            const count = 2 - corps.creeps.length;
+        const controller = corps.baseRoom.controller;
+        const expectedWorker = _.clamp(
+            corps.memory.aveQueueLength / AI_CONFIG.workQueueRatio
+            + (controller && controller.level || 0) / AI_CONFIG.upgradeTaskRatio,
+            AI_CONFIG.minWorker, AI_CONFIG.maxWorker)
+
+        if (corps.creeps.length < expectedWorker) {
+            const count = expectedWorker - corps.creeps.length;
             corps.scheduler.pushTask({
                 type: TaskType.SpawnCreep,
                 priority: PRIORITY_HIGH,
-                body: [WORK, CARRY, MOVE],
+                body: calcBestWorker(corps.baseRoom.energyCapacityAvailable),
                 role: Role.Worker,
                 corps: corps.name,
                 tag: Role.Worker,
@@ -37,9 +49,9 @@ export const DefaultPolicySet: PolicySet = {
             corps.scheduler.pushTask({
                 type: TaskType.UpgradeController,
                 targetId: controller.id,
-                priority: PRIORITY_LOW,
+                priority: PRIORITY_NORMAL,
                 tag: controller.id,
-            }, 1);
+            }, controller.level / AI_CONFIG.upgradeTaskRatio + 1);
     },
     Build: (corps: Corps) => {
         for (let s of corps.baseRoom.find(FIND_CONSTRUCTION_SITES)) {
@@ -52,7 +64,7 @@ export const DefaultPolicySet: PolicySet = {
         }
     },
     Repair: (corps: Corps) => {
-        for (let s of corps.baseRoom.find(FIND_MY_STRUCTURES, { filter: struct => struct.hits < struct.hitsMax })) {
+        for (let s of corps.baseRoom.find(FIND_MY_STRUCTURES, { filter: struct => struct.hits < struct.hitsMax && struct.structureType != STRUCTURE_RAMPART })) {
             corps.scheduler.pushTask({
                 type: TaskType.Repair,
                 targetId: s.id,
@@ -62,12 +74,31 @@ export const DefaultPolicySet: PolicySet = {
         }
     },
     RepairRoad: (corps: Corps) => {
-        for (let s of corps.baseRoom.find(FIND_STRUCTURES, { filter: struct => struct.hits < struct.hitsMax && struct.structureType == STRUCTURE_ROAD })) {
+        for (let s of corps.baseRoom.find(FIND_STRUCTURES, {
+            filter:
+                struct => struct.hits / struct.hitsMax < AI_CONFIG.roadHitsTolerance
+                    && struct.structureType == STRUCTURE_ROAD
+        })) {
             corps.scheduler.pushTask({
                 type: TaskType.Repair,
                 targetId: s.id,
                 priority: PRIORITY_LOW,
                 tag: s.id,
+            }, 1);
+        }
+    },
+    RepairDefence: (corps: Corps) => {
+        for (let s of corps.baseRoom.find(FIND_STRUCTURES, {
+            filter:
+                struct => struct.hits < 50000
+                    && (struct.structureType == STRUCTURE_RAMPART || struct.structureType == STRUCTURE_WALL)
+        })) {
+            corps.scheduler.pushTask({
+                type: TaskType.Repair,
+                targetId: s.id,
+                priority: PRIORITY_LOW + Math.log10(1 / (s.hits + 1)),
+                tag: s.id,
+                hits: 50000,
             }, 1);
         }
     },
@@ -80,7 +111,7 @@ export const DefaultPolicySet: PolicySet = {
                     type: TaskType.Transfer,
                     targetId: s.id,
                     resource: RESOURCE_ENERGY,
-                    priority: PRIORITY_NORMAL,
+                    priority: PRIORITY_NORMAL + 100,
                     tag: s.id,
                 }, 1);
         }

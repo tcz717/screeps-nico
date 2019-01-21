@@ -64,6 +64,7 @@ interface BuildTaskMemory extends TaskMemoryBase {
 }
 interface RepairTaskMemory extends TaskMemoryBase {
   type: TaskType.Repair;
+  hits?: number;
 }
 interface SpawnCreepTaskMemory extends TaskMemoryBase {
   type: TaskType.SpawnCreep;
@@ -95,6 +96,8 @@ interface CorpsMemory {
   towers: string[];
   counter: TaskCounter;
   nextPolicy: number;
+  aveQueueLength: number;
+  reset?: boolean;
 }
 interface RoomMemory {
   sources: { [key: string]: number };

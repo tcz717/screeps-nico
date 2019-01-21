@@ -2,6 +2,7 @@ import _ from "lodash";
 import { PolicySet } from "policy";
 import { PrioritySchduler, Scheduler } from "scheduler";
 import { loadTask, Excutable } from "task";
+import { AI_CONFIG } from "config";
 
 export class Corps {
     readonly memory: CorpsMemory;
@@ -34,6 +35,7 @@ export class Corps {
             towers: [],
             counter: {},
             nextPolicy: 0,
+            aveQueueLength: 0,
         }
     }
     private static initSourceTable(room: Room) {
@@ -45,26 +47,12 @@ export class Corps {
     }
 
     static createBySpawn(name: string, spawn: StructureSpawn): CorpsMemory {
-        Corps.initSourceTable(spawn.room);
-        spawn.memory = {}
-        return Memory.corps[name] = {
-            name: name,
-            roomName: spawn.pos.roomName,
-            spawns: [spawn.name],
-            creeps: [],
-            taskQueue: [],
-            towers: [],
-            counter: {},
-            nextPolicy: 0,
-        }
+        const corps = Corps.create(name, spawn.room.name);
+        corps.spawns = [spawn.name];
+        return corps;
     }
 
     update(policySet: PolicySet): void {
-        for (const name in policySet) {
-            const policy = policySet[name];
-            policy(this);
-        }
-
         this.scheduler.schedule();
 
         for (const excutor of this.excutors) {
@@ -72,15 +60,34 @@ export class Corps {
                 loadTask(excutor.memory.task).excute(excutor);
         }
 
-        this.cleanMemory()
+        for (const name in policySet) {
+            const policy = policySet[name];
+            policy(this);
+        }
+
+        this.statistic();
+        this.cleanMemory();
     }
+    private statistic() {
+        this.memory.aveQueueLength += AI_CONFIG.queueLearningRate * (this.memory.taskQueue.length - this.memory.aveQueueLength);
+    }
+
     private cleanMemory() {
         _(this.memory.creeps)
             .remove(name => !(name in Game.creeps))
-            .forEach(name => delete Memory.creeps[name])
+            .forEach(name => {
+                console.log(`${name} died`)
+                this.scheduler.shutdownTask(Memory.creeps[name].task);
+                delete Memory.creeps[name];
+            })
 
         _(this.memory.spawns)
             .remove(name => !(name in Game.spawns))
-            .forEach(name => delete Memory.spawns[name])
+            .forEach(name => {
+                console.log(`${name} died`)
+                this.scheduler.shutdownTask(Memory.spawns[name].task);
+                delete Memory.spawns[name];
+            })
+
     }
 }

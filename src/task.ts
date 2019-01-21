@@ -59,7 +59,7 @@ export class MoveTask implements Task {
             const result = excutor.moveTo(this.pos);
             if (result == OK || result == ERR_TIRED)
                 return this.memory.lastResult = TaskResult.Working;
-            console.log(this.pos, result);
+            excutor.say("😵");
         }
 
         return this.memory.lastResult = TaskResult.Fatal;
@@ -159,7 +159,6 @@ abstract class WorkTask implements Task {
         return 0;
     }
     excute(excutor: Excutable): TaskResult {
-        debugger
         if (excutor == null || !(excutor instanceof Creep || excutor instanceof StructureTower))
             return this.memory.lastResult = TaskResult.Fail;
         if (this.isFinished(excutor))
@@ -355,7 +354,9 @@ export class RepairTask extends ResourceTask {
     }
     isFinished(): boolean {
         const struct = Game.getObjectById<Structure>(this.memory.targetId);
-        return !struct || struct.hits == struct.hitsMax;
+        if (!struct)
+            return true;
+        return this.memory.hits ? struct.hits >= this.memory.hits : struct.hits == struct.hitsMax;
     }
 }
 

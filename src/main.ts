@@ -19,7 +19,7 @@ function initCorps(): void {
   Memory.corps = {};
   for (const name in Game.spawns) {
     const spawn = Game.spawns[name];
-    const corps = Corps.createBySpawn(`Corps-${spawn.pos.roomName}`, spawn);
+    const corps = Corps.createBySpawn(`Corps${spawn.pos.roomName}`, spawn);
     Memory.corps[corps.name] = corps;
   }
 }
