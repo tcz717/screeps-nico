@@ -4,7 +4,9 @@ type TaskMemory = MoveTaskMemory
   | UpgradeControllerTaskMemory
   | BuildTaskMemory
   | RepairTaskMemory
-  | SpawnCreepTaskMemory;
+  | SpawnCreepTaskMemory
+  | StoreTaskMemory
+  | LoadTaskMemory;
 
 declare const enum TaskResult {
   /** 已完成 */
@@ -27,9 +29,12 @@ declare const enum TaskType {
   Build = "build",
   Repair = "repair",
   SpawnCreep = "spawn",
+  Store = "store",
+  Load = "load",
 }
 declare const enum Role {
   Worker = "Worker",
+  Miner = "Miner",
 }
 interface TaskMemoryBase {
   type: string;
@@ -40,6 +45,8 @@ interface TaskMemoryBase {
   child?: TaskMemory[];
   tag?: string,
   uninterruptible?: boolean;
+  timeout?: number;
+  only?: Role;
 }
 
 interface MoveTaskMemory extends TaskMemoryBase {
@@ -50,10 +57,23 @@ interface MoveTaskMemory extends TaskMemoryBase {
 interface HarvestTaskMemory extends TaskMemoryBase {
   type: TaskType.Harvest;
   reachTick?: number;
+  targetId: string;
 }
 interface TransferTaskMemory extends TaskMemoryBase {
   type: TaskType.Transfer;
   resource: ResourceConstant;
+  targetId: string;
+}
+interface LoadTaskMemory extends TaskMemoryBase {
+  type: TaskType.Load;
+  resource: ResourceConstant;
+  targetId: string;
+}
+interface StoreTaskMemory extends TaskMemoryBase {
+  type: TaskType.Store;
+  resource: ResourceConstant;
+  from: string;
+  targetId: string;
 }
 interface UpgradeControllerTaskMemory extends TaskMemoryBase {
   type: TaskType.UpgradeController;
@@ -61,10 +81,12 @@ interface UpgradeControllerTaskMemory extends TaskMemoryBase {
 }
 interface BuildTaskMemory extends TaskMemoryBase {
   type: TaskType.Build;
+  targetId: string;
 }
 interface RepairTaskMemory extends TaskMemoryBase {
   type: TaskType.Repair;
   hits?: number;
+  targetId: string;
 }
 interface SpawnCreepTaskMemory extends TaskMemoryBase {
   type: TaskType.SpawnCreep;

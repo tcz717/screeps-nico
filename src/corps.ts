@@ -10,7 +10,7 @@ export class Corps {
     readonly baseRoom: Room;
     readonly creeps: Creep[];
     readonly spawns: StructureSpawn[];
-    readonly excutors: (Creep | StructureSpawn)[];
+    readonly excutors: Excutable[];
     readonly name: string;
     readonly roles: Dictionary<Creep[]>;
 
@@ -71,7 +71,13 @@ export class Corps {
         this.cleanMemory();
     }
     private statistic() {
+        if (Game.time % 5 == 0)
+            this.printMetrics();
         this.memory.aveQueueLength += AI_CONFIG.queueLearningRate * (this.memory.taskQueue.length - this.memory.aveQueueLength);
+    }
+    private printMetrics(): any {
+        const idleNum = _(this.creeps).map(c => c.memory.task).filter(_.isUndefined).value().length;
+        console.log(`idle: ${idleNum}, queue: ${this.memory.taskQueue.length}, worker: ${this.roles[Role.Worker].length}`);
     }
 
     private cleanMemory() {

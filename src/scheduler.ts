@@ -4,7 +4,7 @@ import { Corps } from "corps";
 
 export interface Scheduler {
     corpsMemory: CorpsMemory
-    pushTask(memory: TaskMemory, maxCount?: number): void
+    pushTask(memory: TaskMemory | (() => TaskMemory | null), maxCount?: number): void
     getTaskNumber(task: TaskMemory): number
     schedule(): void;
     shutdownTask(memory?: TaskMemory): void;
@@ -23,15 +23,23 @@ export class PrioritySchduler implements Scheduler {
         if (memory.tag)
             this.corpsMemory.counter[memory.type][memory.tag] -= 1;
     }
-    pushTask(memory: TaskMemory, maxCount?: number): void {
-        let count = maxCount != undefined && memory.tag ? maxCount - this.getTaskNumber(memory) : 1;
+    pushTask(memory: TaskMemory | (() => TaskMemory | null), maxCount = 1): void {
+        if (memory instanceof Function) {
+            let m = memory();
+            if (m == null)
+                return;
+            memory = m;
+        }
+        let count = memory.tag ? maxCount - this.getTaskNumber(memory) : 1;
         count = Math.floor(count);
         // console.log(memory.type, count, maxCount, this.getTaskNumber(memory));
         for (let i = 0; i < count; ++i)
             this.corpsMemory.taskQueue.push(memory);
+        this.addTaskNumber(memory, count);
+    }
+    protected addTaskNumber(memory: TaskMemory, count: number) {
         if (memory.tag && count > 0) {
-            _.update(this.corpsMemory.counter, [memory.type, memory.tag],
-                old => (old || 0) + count);
+            _.update(this.corpsMemory.counter, [memory.type, memory.tag], old => (old || 0) + count);
         }
     }
     getTaskNumber(task: TaskMemory): number {
@@ -43,6 +51,7 @@ export class PrioritySchduler implements Scheduler {
         this.cleanTaskQueue();
         // 清除结束的任务
         this.cleanStopedTask();
+        this.cleanTimeout();
 
         let queue: (TaskMemory | undefined)[] = _.orderBy(this.corpsMemory.taskQueue, "priority", "desc");
         for (let index = 0; index < queue.length; index++) {
@@ -67,8 +76,15 @@ export class PrioritySchduler implements Scheduler {
             }
         }
         this.corpsMemory.taskQueue = _.compact(queue);
-        
+
         this.cleanCounter();
+    }
+
+    private cleanTimeout() {
+        _.remove(this.corpsMemory.taskQueue, memory => memory.timeout && memory.timeout < Game.time).forEach(memory => {
+            console.log(`task ${memory.type} timeout`);
+            this.popTask(memory);
+        });;
     }
 
     private findInterruptableExcutor(task: import("task").Task) {
@@ -90,7 +106,7 @@ export class PrioritySchduler implements Scheduler {
 
     private findIdleExcutor(task: import("task").Task) {
         return _(this.corps.excutors)
-            .filter(excutpr => !excutpr.memory.task && !excutpr.spawning)
+            .filter(excutor => !excutor.memory.task && !excutor.spawning)
             .map(excutor => <[Excutable, Number]>[excutor, task.canExcute(excutor)])
             .filter(tuple => tuple[1] > 0)
             .maxBy(1);
