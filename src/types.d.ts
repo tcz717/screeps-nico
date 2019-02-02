@@ -1,12 +1,13 @@
 type TaskMemory = MoveTaskMemory
   | HarvestTaskMemory
-  | TransferTaskMemory
+  | ChargeTaskMemory
   | UpgradeControllerTaskMemory
   | BuildTaskMemory
   | RepairTaskMemory
   | SpawnCreepTaskMemory
   | StoreTaskMemory
-  | LoadTaskMemory;
+  | LoadTaskMemory
+  | TransferTaskMemory;
 
 declare const enum TaskResult {
   /** 已完成 */
@@ -24,17 +25,19 @@ declare const enum TaskType {
   Idle = "idle",
   Move = "move",
   Harvest = "harvest",
-  Transfer = "transfer",
+  Charge = "charge",
   UpgradeController = "upgrade",
   Build = "build",
   Repair = "repair",
   SpawnCreep = "spawn",
   Store = "store",
   Load = "load",
+  Transfer = "transfer",
 }
 declare const enum Role {
   Worker = "Worker",
   Miner = "Miner",
+  Carrier = "Carrier",
 }
 interface TaskMemoryBase {
   type: string;
@@ -59,9 +62,8 @@ interface HarvestTaskMemory extends TaskMemoryBase {
   reachTick?: number;
   targetId: string;
 }
-interface TransferTaskMemory extends TaskMemoryBase {
-  type: TaskType.Transfer;
-  resource: ResourceConstant;
+interface ChargeTaskMemory extends TaskMemoryBase {
+  type: TaskType.Charge;
   targetId: string;
 }
 interface LoadTaskMemory extends TaskMemoryBase {
@@ -95,7 +97,12 @@ interface SpawnCreepTaskMemory extends TaskMemoryBase {
   corps: string;
   name?: string;
 }
-
+interface TransferTaskMemory extends TaskMemoryBase {
+  type: TaskType.Transfer,
+  targetId: string,
+  from: string,
+  resource: ResourceConstant;
+}
 
 interface TaskCounter {
   [type: string]: { [tag: string]: number };
@@ -115,7 +122,6 @@ interface CorpsMemory {
   spawns: string[];
   creeps: string[];
   taskQueue: TaskMemory[];
-  towers: string[];
   counter: TaskCounter;
   nextPolicy: number;
   aveQueueLength: number;
@@ -123,6 +129,7 @@ interface CorpsMemory {
 }
 interface RoomMemory {
   sources: { [key: string]: number };
+  towers: { [key: string]: TaskMemory };
 }
 
 interface Memory {

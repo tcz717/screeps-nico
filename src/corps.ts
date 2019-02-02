@@ -1,7 +1,7 @@
 import _, { Dictionary } from "lodash";
 import { PolicySet } from "policy";
 import { PrioritySchduler, Scheduler } from "scheduler";
-import { loadTask, Excutable } from "task";
+import { loadTask, Excutable, getTaskMemory } from "task";
 import { AI_CONFIG } from "config";
 
 export class Corps {
@@ -13,6 +13,7 @@ export class Corps {
     readonly excutors: Excutable[];
     readonly name: string;
     readonly roles: Dictionary<Creep[]>;
+    readonly towers: StructureTower[];
 
     constructor(name: string) {
         this.memory = Memory.corps[name];
@@ -20,7 +21,8 @@ export class Corps {
         this.baseRoom = Game.rooms[this.memory.roomName];
         this.creeps = _(this.memory.creeps).map(name => Game.creeps[name]).compact().value();
         this.spawns = _(this.memory.spawns).map(name => Game.spawns[name]).compact().value();
-        this.excutors = _.concat<Excutable>(this.creeps, this.spawns);
+        this.towers = this.baseRoom.find<StructureTower>(FIND_MY_STRUCTURES, { filter: s => s instanceof StructureTower });
+        this.excutors = _.concat<Excutable>(this.creeps, this.spawns, this.towers);
         this.roles = _.groupBy(this.creeps, creep => creep.memory.role);
         this.scheduler = new PrioritySchduler(this);
     }
@@ -34,7 +36,6 @@ export class Corps {
             spawns: [],
             creeps: [],
             taskQueue: [],
-            towers: [],
             counter: {},
             nextPolicy: 0,
             aveQueueLength: 0,
@@ -54,13 +55,18 @@ export class Corps {
         return corps;
     }
 
+    getCreepInRole(role: Role): Creep[] {
+        return _.get(this.roles, role, []);
+    }
+
     update(policySet: PolicySet): void {
         this.scheduler.schedule();
 
-        for (const excutor of this.excutors) {
-            if (excutor.memory.task != undefined)
-                loadTask(excutor.memory.task).excute(excutor);
-        }
+        _(this.excutors).forEach(excutor => {
+            const task = getTaskMemory(excutor);
+            if (task != undefined)
+                loadTask(task).excute(excutor);
+        })
 
         for (const name in policySet) {
             const policy = policySet[name];
@@ -77,7 +83,7 @@ export class Corps {
     }
     private printMetrics(): any {
         const idleNum = _(this.creeps).map(c => c.memory.task).filter(_.isUndefined).value().length;
-        console.log(`idle: ${idleNum}, queue: ${this.memory.taskQueue.length}, worker: ${this.roles[Role.Worker].length}`);
+        console.log(`idle: ${idleNum}, queue: ${this.memory.taskQueue.length}, worker: ${this.getCreepInRole(Role.Worker).length}`);
     }
 
     private cleanMemory() {

@@ -1,6 +1,6 @@
-import _ from "lodash";
-import { loadTask, Excutable } from "task";
 import { Corps } from "corps";
+import _ from "lodash";
+import { Excutable, getTaskMemory, isAvailable, loadTask, setTaskMemory, Task } from "task";
 
 export interface Scheduler {
     corpsMemory: CorpsMemory
@@ -63,14 +63,14 @@ export class PrioritySchduler implements Scheduler {
             if (!excutor) {
                 excutor = this.findInterruptableExcutor(task);
                 if (excutor) {
-                    const interruptedTask = excutor[0].memory.task!;
+                    const interruptedTask = getTaskMemory(excutor[0])!;
                     loadTask(interruptedTask).reset();
                     queue.push(interruptedTask);
                     console.log(`task ${interruptedTask.type} is interrupted by ${memory.type}`)
                 }
             }
             if (excutor) {
-                excutor[0].memory.task = memory;
+                setTaskMemory(excutor[0], memory);
                 task.assign(excutor[0]);
                 queue[index] = undefined;
             }
@@ -87,15 +87,13 @@ export class PrioritySchduler implements Scheduler {
         });;
     }
 
-    private findInterruptableExcutor(task: import("task").Task) {
+    private findInterruptableExcutor(task: Task) {
         return _(this.corps.excutors)
             .filter(excutor => {
-                if (excutor.spawning)
-                    return false;
-                if (!excutor.memory.task)
+                const memory = getTaskMemory(excutor);
+                if (!memory || !isAvailable(excutor))
                     return false;
                 else {
-                    const memory = excutor.memory.task;
                     return !memory.uninterruptible && memory.priority < task.memory.priority && memory.lastResult == TaskResult.Acceptable;
                 }
             })
@@ -104,9 +102,9 @@ export class PrioritySchduler implements Scheduler {
             .maxBy(1);
     }
 
-    private findIdleExcutor(task: import("task").Task) {
+    private findIdleExcutor(task: Task) {
         return _(this.corps.excutors)
-            .filter(excutor => !excutor.memory.task && !excutor.spawning)
+            .filter(excutor => !getTaskMemory(excutor) && isAvailable(excutor))
             .map(excutor => <[Excutable, Number]>[excutor, task.canExcute(excutor)])
             .filter(tuple => tuple[1] > 0)
             .maxBy(1);
@@ -114,10 +112,11 @@ export class PrioritySchduler implements Scheduler {
 
     private cleanStopedTask() {
         this.corps.excutors.forEach(excutor => {
-            if (excutor.memory.task && excutor.memory.task.lastResult && excutor.memory.task.lastResult != TaskResult.Working && excutor.memory.task.lastResult != TaskResult.Acceptable) {
-                loadTask(excutor.memory.task!).drop();
-                this.popTask(excutor.memory.task!);
-                delete excutor.memory.task;
+            const memory = getTaskMemory(excutor);
+            if (memory && memory.lastResult && memory.lastResult != TaskResult.Working && memory.lastResult != TaskResult.Acceptable) {
+                loadTask(memory).drop();
+                this.popTask(memory);
+                setTaskMemory(excutor);
             }
         });
     }
@@ -131,9 +130,7 @@ export class PrioritySchduler implements Scheduler {
 
     private checkReset() {
         if (this.corpsMemory.reset) {
-            for (const task of this.corps.memory.taskQueue) {
-                this.popTask(task);
-            }
+            _.forEach(this.corps.memory.taskQueue, this.popTask);
             this.corpsMemory.taskQueue = [];
             delete this.corpsMemory.reset;
             console.log(`RESET TASKQUEUE of ${this.corpsMemory.name}`)

@@ -1,11 +1,23 @@
-import { Corps } from "corps";
-import { PRIORITY_HIGH, PRIORITY_NORMAL, PRIORITY_LOW, isStorable, isStorage, isEnergyContainer } from "task";
 import { AI_CONFIG } from "config";
+import { Corps } from "corps";
 import _, { Dictionary } from "lodash";
+import { isEnergyContainer, isLoadableContainer, isStorable, isStorage, PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_NORMAL, getResourceAmount, getResourceCapacity, isLoadable } from "task";
 
-function calcBestWorker(energy: number): BodyPartConstant[] {
+function calcBestWorker(corps: Corps): BodyPartConstant[] {
     const basic = [WORK, CARRY, MOVE];
-    const count = _.clamp(_.floor(energy / _.sumBy(basic, part => BODYPART_COST[part])), 1, 3);
+    if (corps.getCreepInRole(Role.Worker).length == 0)
+        return basic;
+    const count = _.clamp(_.floor(corps.baseRoom.energyCapacityAvailable / _.sumBy(basic, part => BODYPART_COST[part])), 1, 3);
+    return _.flatten(_.times(count, _.constant(basic)));
+}
+function calcBestMiner(corps: Corps): BodyPartConstant[] {
+    const basic = [WORK, CARRY, MOVE];
+    const count = _.clamp(_.floor(corps.baseRoom.energyCapacityAvailable / _.sumBy(basic, part => BODYPART_COST[part])), 1, 5);
+    return _.flatten(_.times(count, _.constant(basic)));
+}
+function calcBestCarrier(corps: Corps): BodyPartConstant[] {
+    const basic = [CARRY, CARRY, MOVE];
+    const count = _.clamp(_.floor(corps.baseRoom.energyCapacityAvailable / _.sumBy(basic, part => BODYPART_COST[part])), 1, 2);
     return _.flatten(_.times(count, _.constant(basic)));
 }
 
@@ -28,7 +40,7 @@ export const DefaultPolicySet: PolicySet = {
             corps.scheduler.pushTask({
                 type: TaskType.SpawnCreep,
                 priority: PRIORITY_HIGH,
-                body: calcBestWorker(corps.baseRoom.energyCapacityAvailable),
+                body: calcBestWorker(corps),
                 role: Role.Worker,
                 corps: corps.name,
                 tag: Role.Worker,
@@ -39,7 +51,7 @@ export const DefaultPolicySet: PolicySet = {
     SpawnMiner: (corps: Corps) => {
         if (_(corps.baseRoom.find(FIND_STRUCTURES)).findIndex(isStorable) < 0)
             return;
-        const minerNum: number = _.get(corps.roles, Role.Miner, []).length;
+        const minerNum: number = corps.getCreepInRole(Role.Miner).length;
 
         const sources = corps.baseRoom.find(FIND_SOURCES_ACTIVE);
 
@@ -47,11 +59,29 @@ export const DefaultPolicySet: PolicySet = {
             const count = sources.length - minerNum;
             corps.scheduler.pushTask({
                 type: TaskType.SpawnCreep,
-                priority: PRIORITY_HIGH,
-                body: calcBestWorker(corps.baseRoom.energyCapacityAvailable),
+                priority: PRIORITY_NORMAL,
+                body: calcBestMiner(corps),
                 role: Role.Miner,
                 corps: corps.name,
                 tag: Role.Miner,
+            }, count);
+        }
+    },
+    SpawnCarrier: (corps: Corps) => {
+        if (!corps.baseRoom.storage)
+            return;
+        const carruerNum: number = corps.getCreepInRole(Role.Carrier).length;
+        const expectedCarrierNum = 1;
+
+        if (carruerNum < expectedCarrierNum) {
+            const count = expectedCarrierNum - carruerNum;
+            corps.scheduler.pushTask({
+                type: TaskType.SpawnCreep,
+                priority: PRIORITY_LOW,
+                body: calcBestCarrier(corps),
+                role: Role.Carrier,
+                corps: corps.name,
+                tag: Role.Carrier,
             }, count);
         }
     },
@@ -61,7 +91,7 @@ export const DefaultPolicySet: PolicySet = {
             return;
         const sources = corps.baseRoom.find(FIND_SOURCES_ACTIVE);
 
-        for (const source of sources) {
+        _.forEach(sources, source => {
             const storage = source.pos.findClosestByPath(FIND_STRUCTURES, { filter: isStorage, ignoreCreeps: true });
             if (isStorable(storage))
                 corps.scheduler.pushTask({
@@ -72,6 +102,36 @@ export const DefaultPolicySet: PolicySet = {
                     resource: RESOURCE_ENERGY,
                     from: source.id,
                     targetId: storage.id
+                });
+        });
+    },
+    GatherResource: (corps: Corps) => {
+        const carrier = corps.getCreepInRole(Role.Carrier);
+        if (!carrier.length || !isStorable(corps.baseRoom.storage))
+            return;
+        const containers = corps.baseRoom.find<Structure>(FIND_STRUCTURES, { filter: s => isLoadableContainer(s, RESOURCE_ENERGY) });
+        _.forEach(containers, container => {
+            corps.scheduler.pushTask({
+                type: TaskType.Transfer,
+                priority: PRIORITY_NORMAL + getResourceAmount(container, RESOURCE_ENERGY) / getResourceCapacity(container),
+                only: Role.Carrier,
+                tag: container.id,
+                resource: RESOURCE_ENERGY,
+                from: container.id,
+                targetId: corps.baseRoom.storage!.id,
+                timeout: Game.time + 20,
+            });
+        });
+    },
+    LinkTransfer: (corps: Corps) => {
+        if (!isStorable(corps.baseRoom.storage))
+            return;
+        const centerLink = corps.baseRoom.storage.pos.findClosestByPath<StructureLink>(FIND_MY_STRUCTURES, { filter: s => s instanceof StructureLink });
+        if (isStorable(centerLink)) {
+            _(corps.baseRoom.find<StructureLink>(FIND_MY_STRUCTURES, { filter: s => s instanceof StructureLink && isLoadable(s, RESOURCE_ENERGY) }))
+                .without(centerLink)
+                .forEach(link => {
+                    link.transferEnergy(centerLink);
                 });
         }
     },
@@ -97,45 +157,46 @@ export const DefaultPolicySet: PolicySet = {
             }, controller.level / AI_CONFIG.upgradeTaskRatio + 1);
     },
     Build: (corps: Corps) => {
-        for (let s of corps.baseRoom.find(FIND_CONSTRUCTION_SITES)) {
+        _.forEach(corps.baseRoom.find(FIND_CONSTRUCTION_SITES), s => {
             corps.scheduler.pushTask({
                 type: TaskType.Build,
                 targetId: s.id,
                 priority: PRIORITY_NORMAL,
                 tag: s.id,
             }, 1);
-        }
+        });
     },
     Repair: (corps: Corps) => {
-        for (let s of corps.baseRoom.find(FIND_MY_STRUCTURES, { filter: struct => struct.hits < struct.hitsMax && struct.structureType != STRUCTURE_RAMPART })) {
-            corps.scheduler.pushTask({
-                type: TaskType.Repair,
-                targetId: s.id,
-                priority: PRIORITY_HIGH,
-                tag: s.id,
-            }, 1);
-        }
+        _.forEach(corps.baseRoom.find(FIND_MY_STRUCTURES, { filter: struct => struct.hits < struct.hitsMax && struct.structureType != STRUCTURE_RAMPART }),
+            s => {
+                corps.scheduler.pushTask({
+                    type: TaskType.Repair,
+                    targetId: s.id,
+                    priority: PRIORITY_HIGH,
+                    tag: s.id,
+                }, 1);
+            });
     },
     RepairDecay: (corps: Corps) => {
-        for (let s of corps.baseRoom.find(FIND_STRUCTURES, {
+        _.forEach(corps.baseRoom.find(FIND_STRUCTURES, {
             filter:
                 struct => struct.hits / struct.hitsMax < AI_CONFIG.roadHitsTolerance
                     && RegularMaintain.includes(struct.structureType)
-        })) {
+        }), s => {
             corps.scheduler.pushTask({
                 type: TaskType.Repair,
                 targetId: s.id,
                 priority: PRIORITY_LOW,
                 tag: s.id,
             }, 1);
-        }
+        });
     },
     RepairDefence: (corps: Corps) => {
-        for (let s of corps.baseRoom.find(FIND_STRUCTURES, {
+        _.forEach(corps.baseRoom.find(FIND_STRUCTURES, {
             filter:
                 struct => struct.hits < 50000
                     && (struct.structureType == STRUCTURE_RAMPART || struct.structureType == STRUCTURE_WALL)
-        })) {
+        }), s => {
             corps.scheduler.pushTask({
                 type: TaskType.Repair,
                 targetId: s.id,
@@ -144,18 +205,17 @@ export const DefaultPolicySet: PolicySet = {
                 hits: 60000,
                 timeout: Game.time + AI_CONFIG.repairTimeout,
             }, 1);
-        }
+        });
     },
-    Transfer: (corps: Corps) => {
-        for (let s of corps.baseRoom.find<Structure>(FIND_MY_STRUCTURES)) {
+    Charge: (corps: Corps) => {
+        _.forEach(corps.baseRoom.find<Structure>(FIND_MY_STRUCTURES), s => {
             if (isEnergyContainer(s) && s.energy < s.energyCapacity)
                 corps.scheduler.pushTask({
-                    type: TaskType.Transfer,
+                    type: TaskType.Charge,
                     targetId: s.id,
-                    resource: RESOURCE_ENERGY,
                     priority: PRIORITY_NORMAL + 100,
                     tag: s.id,
                 }, 1);
-        }
+        });
     }
 }
