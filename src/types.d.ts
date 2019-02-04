@@ -7,7 +7,8 @@ type TaskMemory = MoveTaskMemory
   | SpawnCreepTaskMemory
   | StoreTaskMemory
   | LoadTaskMemory
-  | TransferTaskMemory;
+  | TransferTaskMemory
+  | AttackTaskMemory;
 
 declare const enum TaskResult {
   /** 已完成 */
@@ -33,6 +34,7 @@ declare const enum TaskType {
   Store = "store",
   Load = "load",
   Transfer = "transfer",
+  Attack = "attack"
 }
 declare const enum Role {
   Worker = "Worker",
@@ -102,6 +104,10 @@ interface TransferTaskMemory extends TaskMemoryBase {
   targetId: string,
   from: string,
   resource: ResourceConstant;
+}
+interface AttackTaskMemory extends TaskMemoryBase {
+  type: TaskType.Attack;
+  targetId: string;
 }
 
 interface TaskCounter {

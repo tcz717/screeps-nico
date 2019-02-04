@@ -102,6 +102,9 @@ export abstract class Task {
         }
         return undefined;
     }
+    protected checkRole(excutor: Creep) {
+        return excutor.memory.role == _.defaultTo(this.memory.only, Role.Worker);;
+    }
 }
 
 /** 移动任务 */
@@ -215,10 +218,8 @@ export class SpawnCreepTask extends Task {
 /** 需要WORK，CARRY和MOVE三个组件完成的任务 */
 abstract class WorkTask extends Task {
     emoji?: string;
-    only: Role;
     constructor(memory: TaskMemory) {
         super(memory);
-        this.only = _.defaultTo(memory.only, Role.Worker);
     }
     assign(excutor: Excutable): void {
         if (excutor instanceof Creep) {
@@ -238,9 +239,6 @@ abstract class WorkTask extends Task {
         if (!this.checkRole(excutor) || body.values().some(_.negate(_.identity)))
             return 0;
         return body.values().sum();
-    }
-    protected checkRole(excutor: Creep) {
-        return excutor.memory.role == this.only;
     }
     excute(excutor: Excutable): TaskResult {
         if (excutor == null || !(excutor instanceof Creep || excutor instanceof StructureTower))
@@ -578,6 +576,45 @@ export class RepairTask extends CreepTowerTask {
     }
 }
 
+export class AttackTask extends Task {
+    memory: AttackTaskMemory;
+    constructor(memory: TaskMemory) {
+        super(memory);
+        if (memory.type != TaskType.Attack)
+            throw new Error("task load bug in " + TaskType.Repair);
+        this.memory = memory;
+    }
+    private checkCreep(excutor: Creep) {
+        const body = _(excutor.body).countBy('type').pick([ATTACK, RANGED_ATTACK, MOVE]);
+        if (!this.checkRole(excutor) || body.values().some(_.negate(_.identity)))
+            return 0;
+        return body.values().sum();
+    }
+    canExcute(excutor: Excutable): number {
+        if (excutor instanceof Creep)
+            return this.checkCreep(excutor);
+        if (excutor instanceof StructureTower)
+            return 1;
+        return 0;
+    }
+    excute(excutor: Excutable): TaskResult {
+        const attacker = excutor as Creep | StructureTower;
+        if (this.isFinished(attacker))
+            return TaskResult.Finished;
+        const target = Game.getObjectById<Creep>(this.memory.targetId)!;
+        const result = attacker instanceof Creep ? attacker.attack(target) : attacker.attack(target);
+        if (result == ERR_NOT_IN_RANGE) {
+            (attacker as Creep).moveTo(target);
+            return TaskResult.Working;
+        }
+        return result == OK ? TaskResult.Acceptable : TaskResult.Fail;
+    }
+    isFinished(excutor?: Excutable): boolean {
+        const target = Game.getObjectById<Creep>(this.memory.targetId);
+        return target && excutor != undefined || false;
+    }
+}
+
 const FindTask = {
     [TaskType.Move]: MoveTask,
     [TaskType.Harvest]: HarvestTask,
@@ -589,6 +626,7 @@ const FindTask = {
     [TaskType.Store]: StoreTask,
     [TaskType.Load]: LoadTask,
     [TaskType.Transfer]: TransferTask,
+    [TaskType.Attack]: AttackTask,
 };
 
 /** 根据memory创建任务实例  */
