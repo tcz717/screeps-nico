@@ -1,7 +1,8 @@
+import { Architect, StandernProjects } from "architect";
 import { AI_CONFIG } from "config";
 import { Corps } from "corps";
 import _, { Dictionary } from "lodash";
-import { isEnergyContainer, isLoadableContainer, isStorable, isStorage, PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_NORMAL, getResourceAmount, getResourceCapacity, isLoadable } from "task";
+import { getResourceAmount, getResourceCapacity, isEnergyContainer, isLoadable, isLoadableContainer, isStorable, isStorage, PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_NORMAL } from "task";
 
 function calcBestWorker(corps: Corps): BodyPartConstant[] {
     const basic = [WORK, CARRY, MOVE];
@@ -23,7 +24,7 @@ function calcBestCarrier(corps: Corps): BodyPartConstant[] {
 
 const RegularMaintain: string[] = [STRUCTURE_ROAD, STRUCTURE_CONTAINER];
 
-type Policy = (corps: Corps) => void;
+export type Policy = (corps: Corps) => void;
 export type PolicySet = Dictionary<Policy>;
 
 export const DefaultPolicySet: PolicySet = {
@@ -217,5 +218,17 @@ export const DefaultPolicySet: PolicySet = {
                     tag: s.id,
                 }, 1);
         });
-    }
+    },
+    Defende: (corps: Corps) => {
+        _.forEach(corps.baseRoom.find(FIND_HOSTILE_CREEPS) as Creep[], s => {
+            corps.scheduler.pushTask({
+                type: TaskType.Attack,
+                targetId: s.id,
+                priority: PRIORITY_HIGH,
+                tag: s.id,
+            }, 1);
+        });
+    },
+
+    Design: Architect(StandernProjects),
 }

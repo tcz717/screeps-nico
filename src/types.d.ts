@@ -113,7 +113,10 @@ interface AttackTaskMemory extends TaskMemoryBase {
 interface TaskCounter {
   [type: string]: { [tag: string]: number };
 }
-
+type Node = { type: BuildableStructureConstant; pos: RoomPosition; id?: string }
+interface Blueprint extends Array<Node> {
+  completed?: boolean;
+}
 interface CreepMemory {
   role: Role;
   task?: TaskMemory;
@@ -132,6 +135,7 @@ interface CorpsMemory {
   nextPolicy: number;
   aveQueueLength: number;
   reset?: boolean;
+  blueprints: { [name: string]: Blueprint };
 }
 interface RoomMemory {
   sources: { [key: string]: number };

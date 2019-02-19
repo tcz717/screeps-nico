@@ -39,6 +39,7 @@ export class Corps {
             counter: {},
             nextPolicy: 0,
             aveQueueLength: 0,
+            blueprints: {},
         }
     }
     private static initSourceTable(room: Room) {

@@ -2,6 +2,7 @@
 import { AI_CONFIG } from "config";
 import _ from "lodash";
 import { worker } from "cluster";
+import { surroundingPos, buildable, walkable } from "utils/helper";
 export type Excutable = Creep | StructureSpawn | StructureTower;
 type Worker = Creep | StructureTower;
 
@@ -139,7 +140,9 @@ export class MoveTask extends Task {
         if (excutor instanceof Creep) {
             if (excutor.pos.inRangeTo(this.pos, this.memory.range))
                 return this.memory.lastResult = TaskResult.Finished;
-            const result = excutor.moveTo(this.pos);
+            const result = excutor.moveTo(this.pos, {
+                visualizePathStyle: {}
+            });
             if (result == OK || result == ERR_TIRED)
                 return this.memory.lastResult = TaskResult.Working;
             excutor.say("😵");
@@ -264,10 +267,11 @@ export class HarvestTask extends WorkTask {
         if (resource != RESOURCE_ENERGY)
             throw new Error("only energy implemented.");
         const sourceDuration = Game.rooms[pos.roomName].memory.sources;
+        const source = pos.findClosestByRange(FIND_SOURCES_ACTIVE, { filter: s => surroundingPos(s.pos).filter(walkable).length })
         const task = new HarvestTask({
             type: TaskType.Harvest,
             priority: priority,
-            targetId: _.minBy(_.keys(sourceDuration), id => sourceDuration[id])!,
+            targetId: source!.id,
         });
         if (excutor)
             task.assign(excutor);
@@ -585,8 +589,8 @@ export class AttackTask extends Task {
         this.memory = memory;
     }
     private checkCreep(excutor: Creep) {
-        const body = _(excutor.body).countBy('type').pick([ATTACK, RANGED_ATTACK, MOVE]);
-        if (!this.checkRole(excutor) || body.values().some(_.negate(_.identity)))
+        const body = _(excutor.body).countBy('type');
+        if (!this.checkRole(excutor) || _.every([ATTACK, RANGED_ATTACK, MOVE], _.propertyOf(body.values())))
             return 0;
         return body.values().sum();
     }
@@ -600,18 +604,19 @@ export class AttackTask extends Task {
     excute(excutor: Excutable): TaskResult {
         const attacker = excutor as Creep | StructureTower;
         if (this.isFinished(attacker))
-            return TaskResult.Finished;
+            return this.memory.lastResult = TaskResult.Finished;
         const target = Game.getObjectById<Creep>(this.memory.targetId)!;
         const result = attacker instanceof Creep ? attacker.attack(target) : attacker.attack(target);
+        console.log("attack:", result)
         if (result == ERR_NOT_IN_RANGE) {
             (attacker as Creep).moveTo(target);
-            return TaskResult.Working;
+            return this.memory.lastResult = TaskResult.Working;
         }
-        return result == OK ? TaskResult.Acceptable : TaskResult.Fail;
+        return this.memory.lastResult = (result == OK ? TaskResult.Acceptable : TaskResult.Fail);
     }
     isFinished(excutor?: Excutable): boolean {
         const target = Game.getObjectById<Creep>(this.memory.targetId);
-        return target && excutor != undefined || false;
+        return target == undefined;
     }
 }
 
