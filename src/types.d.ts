@@ -8,7 +8,8 @@ type TaskMemory = MoveTaskMemory
   | StoreTaskMemory
   | LoadTaskMemory
   | TransferTaskMemory
-  | AttackTaskMemory;
+  | AttackTaskMemory
+  | PickTaskMemory;
 
 declare const enum TaskResult {
   /** 已完成 */
@@ -34,12 +35,14 @@ declare const enum TaskType {
   Store = "store",
   Load = "load",
   Transfer = "transfer",
-  Attack = "attack"
+  Attack = "attack",
+  Pick = "pick"
 }
 declare const enum Role {
   Worker = "Worker",
   Miner = "Miner",
   Carrier = "Carrier",
+  Upgrader = "Upgrader",
 }
 interface TaskMemoryBase {
   type: string;
@@ -76,7 +79,7 @@ interface LoadTaskMemory extends TaskMemoryBase {
 interface StoreTaskMemory extends TaskMemoryBase {
   type: TaskType.Store;
   resource: ResourceConstant;
-  from: string;
+  from?: string;
   targetId: string;
 }
 interface UpgradeControllerTaskMemory extends TaskMemoryBase {
@@ -92,6 +95,11 @@ interface RepairTaskMemory extends TaskMemoryBase {
   hits?: number;
   targetId: string;
 }
+interface PickTaskMemory extends TaskMemoryBase {
+  type: TaskType.Pick;
+  targetId: string;
+  from: string;
+}
 interface SpawnCreepTaskMemory extends TaskMemoryBase {
   type: TaskType.SpawnCreep;
   body: BodyPartConstant[];
@@ -104,6 +112,7 @@ interface TransferTaskMemory extends TaskMemoryBase {
   targetId: string,
   from: string,
   resource: ResourceConstant;
+  loaded?: boolean;
 }
 interface AttackTaskMemory extends TaskMemoryBase {
   type: TaskType.Attack;
@@ -140,6 +149,7 @@ interface CorpsMemory {
 interface RoomMemory {
   sources: { [key: string]: number };
   towers: { [key: string]: TaskMemory };
+  heatMap: { [key: string]: number };
 }
 
 interface Memory {

@@ -3,6 +3,8 @@ import { PolicySet } from "policy";
 import { PrioritySchduler, Scheduler } from "scheduler";
 import { loadTask, Excutable, getTaskMemory } from "task";
 import { AI_CONFIG } from "config";
+import { Storable, isStorage } from "utils/helper";
+import { updateCorpsMetric } from "metric";
 
 export class Corps {
     readonly memory: CorpsMemory;
@@ -14,6 +16,8 @@ export class Corps {
     readonly name: string;
     readonly roles: Dictionary<Creep[]>;
     readonly towers: StructureTower[];
+    readonly storables: Storable[];
+    readonly mainLink?: StructureLink;
 
     constructor(name: string) {
         this.memory = Memory.corps[name];
@@ -22,8 +26,10 @@ export class Corps {
         this.creeps = _(this.memory.creeps).map(name => Game.creeps[name]).compact().value();
         this.spawns = _(this.memory.spawns).map(name => Game.spawns[name]).compact().value();
         this.towers = this.baseRoom.find<StructureTower>(FIND_MY_STRUCTURES, { filter: s => s instanceof StructureTower });
+        this.storables = this.baseRoom.find<Storable>(FIND_STRUCTURES, { filter: isStorage });
         this.excutors = _.concat<Excutable>(this.creeps, this.spawns, this.towers);
         this.roles = _.groupBy(this.creeps, creep => creep.memory.role);
+        // this.mainLink = this.baseRoom.storage ? _. this.baseRoom.storage.pos.findInRange<StructureLink>(FIND_MY_STRUCTURES, 2, { filter: s => s instanceof StructureLink }) : undefined;
         this.scheduler = new PrioritySchduler(this);
     }
 
@@ -61,8 +67,6 @@ export class Corps {
     }
 
     update(policySet: PolicySet): void {
-        this.scheduler.schedule();
-
         _(this.excutors).forEach(excutor => {
             const task = getTaskMemory(excutor);
             if (task != undefined)
@@ -74,17 +78,14 @@ export class Corps {
             policy(this);
         }
 
+        this.scheduler.schedule();
+
         this.statistic();
         this.cleanMemory();
     }
     private statistic() {
-        if (Game.time % 5 == 0)
-            this.printMetrics();
+        updateCorpsMetric(this);
         this.memory.aveQueueLength += AI_CONFIG.queueLearningRate * (this.memory.taskQueue.length - this.memory.aveQueueLength);
-    }
-    private printMetrics(): any {
-        const idleNum = _(this.creeps).map(c => c.memory.task).filter(_.isUndefined).value().length;
-        console.log(`idle: ${idleNum}, queue: ${this.memory.taskQueue.length}, worker: ${this.getCreepInRole(Role.Worker).length}`);
     }
 
     private cleanMemory() {

@@ -1,53 +1,24 @@
 
-import { AI_CONFIG } from "config";
 import _ from "lodash";
-import { worker } from "cluster";
-import { surroundingPos, buildable, walkable } from "utils/helper";
+import { recordMineDuration, recordHeatMap } from "metric";
+import { surroundingPos, walkable, isLoadable, isEnergyContainer, isStorable, isMineable, getResourceAmount } from "utils/helper";
+import { type } from "os";
 export type Excutable = Creep | StructureSpawn | StructureTower;
 type Worker = Creep | StructureTower;
 
+export const PRIORITY_EMERGENCY = 2000;
 export const PRIORITY_HIGH = 1500;
 export const PRIORITY_NORMAL = 1000;
 export const PRIORITY_LOW = 500;
 
-export type EnergyContainer = StructureExtension | StructureSpawn | StructureTower;
-type Storable = StructureContainer | StructureStorage | StructureLink;
-export function getResourceAmount(struct: Structure | null | undefined, resource: ResourceConstant): number {
-    if (struct instanceof StructureLink && resource == RESOURCE_ENERGY)
-        return struct.energy;
-    return _.get(struct, ["store", resource], 0);
+export function isCreepFull(excutor?: Excutable): boolean {
+    return excutor && excutor instanceof Creep && _(excutor.carry).values().sum() == excutor.carryCapacity || false;
 }
-export function getResourceTotal(struct: Structure | null | undefined): number {
-    if (struct instanceof StructureLink)
-        return struct.energy;
-    return _(_.get(struct, "store", {})).values().sum();
+export function isCreepEmpty(excutor?: Excutable): boolean {
+    return excutor && excutor instanceof Creep && _(excutor.carry).values().sum() == 0 || false;
 }
-export function getResourceCapacity(struct: Structure | null | undefined): number {
-    if (struct instanceof StructureLink)
-        return struct.energyCapacity;
-    return _.get(struct, "storeCapacity", 0);
-}
-export function isEnergyContainer(target: Structure | null): target is EnergyContainer {
-    const energyRequired: string[] = [STRUCTURE_EXTENSION, STRUCTURE_SPAWN, STRUCTURE_TOWER];
-    return target && energyRequired.includes(target.structureType) || false;
-}
-export function isStorage(target: Structure | null): target is Storable {
-    return target instanceof StructureContainer || target instanceof StructureStorage || target instanceof StructureLink;
-}
-function checkSource(sourceId: string) {
-    return Game.getObjectById<Source>(sourceId)!.energy > 0;
-}
-export function isStorable(struct: Structure | null | undefined): struct is Storable {
-    return getResourceTotal(struct) < getResourceCapacity(struct);
-}
-export function isLoadable(struct: Structure | null, resource: ResourceConstant): struct is Storable {
-    return getResourceAmount(struct, resource) > 0;
-}
-export function isLoadableContainer(struct: Structure | null, resource: ResourceConstant): boolean {
-    return (struct instanceof StructureContainer || struct instanceof StructureLink) && isLoadable(struct, resource);
-}
-export function isCreeepFull(excutor?: Excutable): boolean {
-    return excutor && excutor instanceof Creep && excutor.carry.energy == excutor.carryCapacity || false;
+export function creepHas(excutor: Excutable | undefined, resource: ResourceConstant): boolean {
+    return excutor instanceof Creep && _.get(excutor.carry, resource, 0)! > 0 || false;
 }
 
 export function getTaskMemory(excutor: Excutable): TaskMemory | undefined {
@@ -138,10 +109,12 @@ export class MoveTask extends Task {
     }
     excute(excutor: Excutable): TaskResult {
         if (excutor instanceof Creep) {
+            recordHeatMap(excutor.pos);
             if (excutor.pos.inRangeTo(this.pos, this.memory.range))
                 return this.memory.lastResult = TaskResult.Finished;
             const result = excutor.moveTo(this.pos, {
-                visualizePathStyle: {}
+                visualizePathStyle: {},
+                maxRooms: 1
             });
             if (result == OK || result == ERR_TIRED)
                 return this.memory.lastResult = TaskResult.Working;
@@ -238,25 +211,34 @@ abstract class WorkTask extends Task {
         return this.canCreepExcute(excutor);
     }
     protected canCreepExcute(excutor: Creep): number {
-        const body = _(excutor.body).countBy('type').pick([WORK, CARRY, MOVE]);
-        if (!this.checkRole(excutor) || body.values().some(_.negate(_.identity)))
+        const body = _(excutor.body).countBy('type');
+        if (!this.checkRole(excutor) || _.every([WORK, CARRY, MOVE], _.propertyOf(body.values())))
             return 0;
-        return body.values().sum();
+        const d = this.memory.targetId ? excutor.pos.getRangeTo(Game.getObjectById<RoomObject>(this.memory.targetId)!.pos) : 1;
+        return body.values().sum() / d;
     }
     excute(excutor: Excutable): TaskResult {
         if (excutor == null || !(excutor instanceof Creep || excutor instanceof StructureTower))
             return this.memory.lastResult = TaskResult.Fail;
         if (this.isFinished(excutor))
             return this.memory.lastResult = TaskResult.Finished;
-        if (this.excuteChild(excutor)) {
-            return this.memory.lastResult!;
+        if (_.isEmpty(this.memory.child)) {
+            this.excuteMain(excutor);
+            this.excuteChild(excutor);
         }
         else {
-            if (this.emoji && excutor instanceof Creep)
-                excutor.say(this.emoji);
-            return this.memory.lastResult = this.mainAction(excutor);
+            this.excuteChild(excutor);
+            if (_.isEmpty(this.memory.child))
+                this.excuteMain(excutor);
         }
+        return this.memory.lastResult!;
     }
+    private excuteMain(excutor: Creep | StructureTower) {
+        if (this.emoji && excutor instanceof Creep)
+            excutor.say(this.emoji);
+        this.memory.lastResult = this.mainAction(excutor);
+    }
+
     abstract mainAction(excutor: Worker): TaskResult;
     abstract isFinished(excutor?: Excutable): boolean;
 }
@@ -267,7 +249,9 @@ export class HarvestTask extends WorkTask {
         if (resource != RESOURCE_ENERGY)
             throw new Error("only energy implemented.");
         const sourceDuration = Game.rooms[pos.roomName].memory.sources;
-        const source = pos.findClosestByRange(FIND_SOURCES_ACTIVE, { filter: s => surroundingPos(s.pos).filter(walkable).length })
+        var source = pos.findClosestByRange(FIND_SOURCES_ACTIVE, { filter: s => surroundingPos(s.pos).filter(walkable).length })
+        if (!source)
+            source = pos.findClosestByRange(FIND_SOURCES_ACTIVE);
         const task = new HarvestTask({
             type: TaskType.Harvest,
             priority: priority,
@@ -292,11 +276,13 @@ export class HarvestTask extends WorkTask {
         if (result == OK) {
             if (!this.memory.reachTick)
                 this.memory.reachTick = Game.time;
-            if (excutor.carry.energy < excutor.carryCapacity)
+            if (!isCreepFull(excutor))
                 return TaskResult.Acceptable;
             else
                 return TaskResult.Finished;
         }
+        else if (result == ERR_TIRED)
+            return TaskResult.Acceptable;
         else if (result == ERR_NOT_IN_RANGE) {
             this.memory.child = [MoveTask.moveTo(source.pos, excutor).memory];
             return TaskResult.Working;
@@ -305,15 +291,59 @@ export class HarvestTask extends WorkTask {
             return TaskResult.Fatal;
     }
     isFinished(excutor?: Excutable): boolean {
-        return isCreeepFull(excutor);
+        return isCreepFull(excutor);
     }
     drop(): void {
         super.drop();
         const source = Game.getObjectById<Source>(this.memory.targetId);
         if (this.memory.startTick && source) {
             const duration = this.memory.reachTick ? this.memory.reachTick - this.memory.startTick : 1000;
-            source.room.memory.sources[source.id] += AI_CONFIG.sourceLearningRate * (duration - source.room.memory.sources[source.id]);
+            recordMineDuration(source, duration);
         }
+    }
+}
+
+export class PickTask extends WorkTask {
+    emoji = '♻'
+    memory: PickTaskMemory
+    constructor(memory: TaskMemory) {
+        super(memory);
+        if (memory.type != TaskType.Pick)
+            throw new Error("task load bug in " + typeof this);
+        this.memory = memory;
+    }
+    mainAction(excutor: Worker): TaskResult {
+        const resource = Game.getObjectById<Resource>(this.memory.from);
+        if (excutor instanceof StructureTower)
+            return TaskResult.Fatal;
+        if (resource == null || isCreepFull(excutor)) {
+            if (isCreepEmpty(excutor))
+                return TaskResult.Finished;
+            this.memory.child = _(excutor.carry)
+                .pickBy()
+                .keys()
+                .map(r => ({
+                    type: TaskType.Store,
+                    targetId: this.memory.targetId,
+                    priority: PRIORITY_NORMAL,
+                    resource: r
+                } as StoreTaskMemory))
+                .value();
+            return TaskResult.Working;
+        }
+        let result = excutor.pickup(resource);
+        if (result == OK)
+            return TaskResult.Working;
+        if (result == ERR_NOT_IN_RANGE) {
+            this.memory.child = [MoveTask.moveTo(resource.pos, excutor).memory];
+            return TaskResult.Working;
+        }
+        else
+            return TaskResult.Fatal;
+    }
+    isFinished(excutor?: Creep | StructureTower | StructureSpawn | undefined): boolean {
+        const resource = Game.getObjectById<Resource>(this.memory.targetId);
+        return resource == null && (excutor == undefined || isCreepEmpty(excutor));
     }
 }
 /** 需要采集资源并消耗的任务 */
@@ -331,24 +361,33 @@ export abstract class ResourceTask extends WorkTask {
             return TaskResult.Fatal;
         let result = this.useAction(excutor, target);
         if (!excutor.carry[this.resource]) {
-            this.memory.child = [this.getResourceTask(excutor)];
-            return TaskResult.Acceptable;
+            return this.getResource(excutor);
         }
 
         if (result == OK)
             return this.greedy ? TaskResult.Working : TaskResult.Finished;
         else if (result == ERR_NOT_ENOUGH_RESOURCES) {
-            this.memory.child = [this.getResourceTask(excutor)];
-            return TaskResult.Acceptable;
+            return this.getResource(excutor);
         }
         else if (result == ERR_NOT_IN_RANGE) {
             this.memory.child = [MoveTask.moveTo(target.pos, excutor, this.range).memory];
             return TaskResult.Acceptable;
         }
-        else
+        else {
+            console.log(`${JSON.stringify(this.memory)} got ${result} and fail`)
             return TaskResult.Fail;
+        }
     }
-    protected getResourceTask(excutor: Creep): TaskMemory {
+    private getResource(excutor: Creep) {
+        const subTask = this.getResourceTask(excutor);
+        if (subTask) {
+            this.memory.child = [subTask];
+            return TaskResult.Acceptable;
+        }
+        return TaskResult.Finished;
+    }
+
+    protected getResourceTask(excutor: Creep): TaskMemory | undefined {
         const storage = excutor.pos.findClosestByPath(FIND_STRUCTURES, { filter: s => isLoadable(s, this.resource) });
         if (storage) {
             return {
@@ -392,9 +431,10 @@ export class TransferTask extends ResourceTask {
         super(memory, memory.resource);
         this.memory = memory;
         this.emoji = "🔄";
+        this.greedy = Game.getObjectById(this.memory.from) instanceof Tombstone;
     }
     protected getResourceTask(excutor: Creep): TaskMemory {
-        const storage = Game.getObjectById<Structure>(this.memory.from);
+        const storage = Game.getObjectById<Structure | Tombstone>(this.memory.from);
         if (storage) {
             return {
                 type: TaskType.Load,
@@ -406,13 +446,16 @@ export class TransferTask extends ResourceTask {
         }
         throw `${storage} not exsist`;
     }
-    useAction(excutor: Creep, target: RoomObject): ScreepsReturnCode {
-        return excutor.transfer(<OwnedStructure<StructureConstant>>target, this.resource);
+    canExcute(excutor: Excutable): number {
+        return excutor instanceof Creep && !isCreepFull(excutor) ? super.canExcute(excutor) : 0;
     }
-    isFinished(): boolean {
+    useAction(excutor: Creep, target: RoomObject): ScreepsReturnCode {
+        return excutor.transfer(<OwnedStructure>target, this.resource);
+    }
+    isFinished(excutor?: Excutable): boolean {
         const target = Game.getObjectById<Structure>(this.memory.targetId);
-        const storage = Game.getObjectById<Structure>(this.memory.from);
-        return !isStorable(target) || !isLoadable(storage, this.resource);
+        const storage = Game.getObjectById<Structure | Tombstone>(this.memory.from);
+        return !isStorable(target) || (!isLoadable(storage, this.resource) && !creepHas(excutor, this.resource));
     }
 }
 /** 装载资源任务 */
@@ -445,7 +488,7 @@ export class LoadTask extends WorkTask {
     }
     isFinished(excutor?: Excutable): boolean {
         const target = Game.getObjectById<Structure>(this.memory.targetId);
-        return isCreeepFull(excutor);
+        return isCreepFull(excutor) || !isLoadable(target, this.memory.resource);
     }
 }
 /** 囤积资源任务 */
@@ -454,28 +497,33 @@ export class StoreTask extends ResourceTask {
     constructor(memory: TaskMemory) {
         if (memory.type != TaskType.Store)
             throw new Error("task load bug in StoreTask");
-        super(memory);
+        super(memory, memory.resource);
         this.memory = memory;
         this.emoji = "⏬";
         this.greedy = true;
     }
     canExcute(excutor: Excutable) {
-        return checkSource(this.memory.from) ? super.canExcute(excutor) : 0;
+        return isMineable(this.memory.from) || creepHas(excutor, this.memory.resource) ? super.canExcute(excutor) : 0;
     }
     useAction(excutor: Creep, target: RoomObject): ScreepsReturnCode {
-        return excutor.transfer(<OwnedStructure>target, this.memory.resource);
+        const result = excutor.transfer(<OwnedStructure>target, this.memory.resource);
+        if (result == ERR_NOT_ENOUGH_RESOURCES && !this.memory.from)
+            return OK;
+        return result;
     }
     isFinished(): boolean {
         const target = Game.getObjectById<Structure>(this.memory.targetId);
-        if (!checkSource(this.memory.from))
+        if (this.memory.from && !isMineable(this.memory.from))
             return true;
         return !isStorable(target);
     }
-    protected getResourceTask(excutor: Creep): TaskMemory {
+    protected getResourceTask(excutor: Creep): TaskMemory | undefined {
+        if (!this.memory.from)
+            return undefined;
         return {
             type: TaskType.Harvest,
             priority: PRIORITY_NORMAL,
-            targetId: this.memory.from,
+            targetId: this.memory.from!,
             startTick: Game.time,
         };
     }
@@ -541,7 +589,7 @@ abstract class CreepTowerTask extends ResourceTask {
         const target = Game.getObjectById<Structure>(this.memory.targetId);
         if (tower.energy < TOWER_ENERGY_COST || !target)
             return 0;
-        return _.clamp(TOWER_FALLOFF_RANGE - tower.pos.getRangeTo(target), TOWER_OPTIMAL_RANGE, TOWER_FALLOFF_RANGE) / 3;
+        return 50 - _.clamp(tower.pos.getRangeTo(target), TOWER_OPTIMAL_RANGE, TOWER_FALLOFF_RANGE) / 3;
     }
     mainAction(excutor: Worker): TaskResult {
         if (excutor instanceof Creep)
@@ -590,7 +638,7 @@ export class AttackTask extends Task {
     }
     private checkCreep(excutor: Creep) {
         const body = _(excutor.body).countBy('type');
-        if (!this.checkRole(excutor) || _.every([ATTACK, RANGED_ATTACK, MOVE], _.propertyOf(body.values())))
+        if (!this.checkRole(excutor) || !_.every([ATTACK, RANGED_ATTACK, MOVE], _.propertyOf(body.values())))
             return 0;
         return body.values().sum();
     }
@@ -632,6 +680,7 @@ const FindTask = {
     [TaskType.Load]: LoadTask,
     [TaskType.Transfer]: TransferTask,
     [TaskType.Attack]: AttackTask,
+    [TaskType.Pick]: PickTask,
 };
 
 /** 根据memory创建任务实例  */

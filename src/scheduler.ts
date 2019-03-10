@@ -123,14 +123,14 @@ export class PrioritySchduler implements Scheduler {
 
     private cleanTaskQueue() {
         _.remove(this.corpsMemory.taskQueue, task => loadTask(task).isFinished()).forEach(memory => {
-            console.log(`detect task ${memory.type} is finished and omit it`);
+            console.log(`detect task ${memory.type} is finished and omit it (${JSON.stringify(memory)})`);
             this.popTask(memory);
         });
     }
 
     private checkReset() {
         if (this.corpsMemory.reset) {
-            _.forEach(this.corps.memory.taskQueue, this.popTask);
+            _.forEach(this.corps.memory.taskQueue, this.popTask.bind(this));
             this.corpsMemory.taskQueue = [];
             delete this.corpsMemory.reset;
             console.log(`RESET TASKQUEUE of ${this.corpsMemory.name}`)

@@ -1,4 +1,4 @@
-import _ from "lodash";
+import _, { Dictionary } from "lodash";
 
 
 export function surrounding(x: number, y: number): Array<[number, number]> {
@@ -36,4 +36,69 @@ export function walkable(pos: RoomPosition) {
             _.matchesProperty('type', "creep"),
             _.matches({ type: "terrain", terrain: "wall" })
         ));
+}
+
+export function isIdle(creep: Creep): boolean {
+    return !creep.spawning && !creep.memory.task;
+}
+
+
+export type EnergyContainer = StructureExtension | StructureSpawn | StructureTower;
+export type Storable = StructureContainer | StructureStorage | StructureLink;
+export function getResourceAmount(struct: Structure | Tombstone | null | undefined, resource: ResourceConstant): number {
+    if (struct instanceof StructureLink && resource == RESOURCE_ENERGY)
+        return struct.energy;
+    return _.get(struct, ["store", resource], 0);
+}
+export function getResourceTotal(struct: Structure | Tombstone | null | undefined): number {
+    if (struct instanceof StructureLink)
+        return struct.energy;
+    return _(_.get(struct, "store", {})).values().sum();
+}
+export function getResource(struct: Structure | Tombstone | null | undefined): Dictionary<number> {
+    if (struct instanceof StructureLink)
+        return { [RESOURCE_ENERGY]: struct.energy };
+    return _.pickBy(_.get(struct, "store", {}));
+}
+export function getResourceCapacity(struct: Structure | null | undefined): number {
+    if (struct instanceof StructureLink)
+        return struct.energyCapacity;
+    return _.get(struct, "storeCapacity", 0);
+}
+export function isEnergyContainer(target: Structure | null): target is EnergyContainer {
+    const energyRequired: string[] = [STRUCTURE_EXTENSION, STRUCTURE_SPAWN, STRUCTURE_TOWER];
+    return target && energyRequired.includes(target.structureType) || false;
+}
+export function isStorage(target: Structure | null): target is Storable {
+    return target instanceof StructureContainer || target instanceof StructureStorage || target instanceof StructureLink;
+}
+export function isMineralStorage(target: Structure | null): target is Storable {
+    return target instanceof StructureContainer || target instanceof StructureStorage;
+}
+export function isMineable(sourceId: string | undefined) {
+    const source = Game.getObjectById<RoomObject>(sourceId);
+    if (source instanceof Source)
+        return source.energy > 0;
+    else if (source instanceof Mineral)
+        return source.mineralAmount > 0;
+    return false;
+}
+export function isStorable(struct: Structure | null | undefined): struct is Storable {
+    return getResourceTotal(struct) < getResourceCapacity(struct);
+}
+export function isLoadable(struct: Structure | Tombstone | null, resource: ResourceConstant): struct is Storable {
+    return getResourceAmount(struct, resource) > 0;
+}
+export function isLoadableAny(struct: Structure | Tombstone | null): boolean {
+    return getResourceTotal(struct) > 0;
+}
+export function isLoadableContainer(struct: Structure | null, resource: ResourceConstant): boolean {
+    return (struct instanceof StructureContainer || struct instanceof StructureLink) && isLoadable(struct, resource);
+}
+export function isLoadableContainerAny(struct: Structure | null): boolean {
+    return (struct instanceof StructureContainer || struct instanceof StructureLink) && isLoadableAny(struct);
+}
+
+export function isExtractor(s: AnyOwnedStructure): boolean {
+    return s instanceof StructureExtractor && s.cooldown == undefined;
 }

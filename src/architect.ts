@@ -2,7 +2,8 @@ import { Corps } from "corps";
 import { Policy } from "policy";
 import { Dictionary } from "lodash";
 import _ from "lodash";
-import { surrounding, surroundingPos, buildable } from "utils/helper";
+import { surrounding, surroundingPos, buildable, isStorage } from "utils/helper";
+import { AI_CONFIG } from "config";
 
 type BlueprintGenerator = (corps: Corps) => Blueprint
 type Locator = (corps: Corps) => RoomPosition
@@ -66,9 +67,9 @@ function BuildStorage() {
     }
 }
 /** 建造塔楼 */
-function BuildTower() {
+function BuildTower(center: Locator = FindSpawn) {
     return function (corps: Corps): Blueprint {
-        var p = searchBlock(corps, 1)!;
+        var p = searchBlock(corps, 1, center)!;
 
         console.log(`Choice ${p} as Tower`)
         return [
@@ -85,6 +86,33 @@ function BuildLink(pos: Locator) {
         return [
             { type: STRUCTURE_LINK, pos: p },
         ];
+    }
+}
+
+function Build(pos: Locator, building: BuildableStructureConstant) {
+    return function (corps: Corps): Blueprint {
+        var p = pos(corps);
+
+        console.log(`Choice ${p} as ${building}`)
+        return [
+            { type: building, pos: p },
+        ];
+    }
+}
+/** 建造塔楼 */
+function BuildSourceLink() {
+    return function (corps: Corps): Blueprint {
+        const source = _(corps.baseRoom.find(FIND_SOURCES))
+            .filter((s: Source) => s.pos.findInRange(FIND_STRUCTURES, 2, { filter: isStorage }).length == 0)
+            .maxBy(s => s.pos.getRangeTo(corps.baseRoom.storage!))
+
+        console.log(`Choice ${source} as SourceLink`)
+        if (source)
+            return [
+                { type: STRUCTURE_LINK, pos: WithRange(() => source.pos, 2)(corps) },
+            ];
+        else
+            return []
     }
 }
 
@@ -114,6 +142,47 @@ function Cover(center: Locator, sturct: BuildableStructureConstant): BlueprintGe
     }
 }
 
+function HeatmapRoadUpdate(baseProject?: string): BlueprintGenerator {
+    return function (corps: Corps): Blueprint {
+        const maxHeat = _(corps.baseRoom.memory.heatMap).values().max() || 1;
+        const map = getBuildMap(corps);
+        const hotPoints: Blueprint = _(corps.baseRoom.memory.heatMap)
+            .mapValues(h => h / maxHeat)
+            .pickBy((h, p) => {
+                const _p = parseInt(p);
+                return h > AI_CONFIG.heatmapRoadRatio && map[~~(_p / 50)][_p % 50] > 0;
+            })
+            .keys()
+            .map(i => ({ pos: indexToPosition(corps.baseRoom, parseInt(i)), type: STRUCTURE_ROAD }))
+            .value();
+        if (baseProject) {
+            corps.memory.blueprints[baseProject].push(...hotPoints);
+            return []
+        }
+        return hotPoints;
+    }
+}
+function WithRange(center: Locator, range: number): Locator {
+    return (corps: Corps): RoomPosition => {
+        const mat = getBuildMap(corps);
+        const s = center(corps);
+        const visited = _.times(50, () => _.times(50, _.constant(0)));
+        const next: [number, number][] = [[s.x, s.y]];
+
+        var count = 0
+        var p: [number, number] | undefined = undefined;
+        while (next.length) {
+            p = next.shift()!;
+            console.log(p, count++, next.length)
+            if (mat[p[0]][p[1]] >= 1 && s.getRangeTo(p[0], p[1]) == range)
+                return corps.baseRoom.getPositionAt(p[0], p[1])!;
+            next.push(..._(surrounding(p[0], p[1]))
+                .filter(pos => visited[pos[0]][pos[1]]++ == 0)
+                .value());
+        }
+        throw `WithRange not found in ${s}, ${range}`;
+    }
+}
 function CloseTo(center: Locator): Locator {
     return (corps: Corps): RoomPosition => searchBlock(corps, 1, center)!;
 }
@@ -136,6 +205,12 @@ function AtEverySource(generator: { (pos: Locator, ...args: any[]): BlueprintGen
         .flatMap(s => generator(() => s.pos, ...args)(corps))
         .value()
 }
+/** 对每个source执行操作 */
+function AtEveryMineral(generator: { (pos: Locator, ...args: any[]): BlueprintGenerator }, ...args: any[]) {
+    return (corps: Corps) => _(corps.baseRoom.find(FIND_MINERALS))
+        .flatMap(s => generator(() => s.pos, ...args)(corps))
+        .value()
+}
 
 /** 检测某个project是否已完成 */
 function Finished(required: string | Array<string>): Premiss {
@@ -150,7 +225,10 @@ function Level(level: number): Premiss {
     return (project: Project, corps: Corps, finished: Set<string>) => corps.baseRoom.controller!.level >= level;
 }
 
-function searchBlock(corps: Corps, size: number, start: Locator = FindSpawn): RoomPosition | null {
+function indexToPosition(room: Room, index: number): RoomPosition {
+    return room.getPositionAt(~~(index / 50), index % 50)!;
+}
+function getBuildMap(corps: Corps) {
     const mat = _.times(50, () => _.times(50, _.constant(0)));
 
     const map = corps.baseRoom.lookAtArea(0, 0, 49, 49);
@@ -165,20 +243,25 @@ function searchBlock(corps: Corps, size: number, start: Locator = FindSpawn): Ro
             mat[i][j] = blocked ? 0 : _.min([mat[i - 1][j - 1], mat[i - 1][j], mat[i][j - 1]])! + 1;
         }
     }
+    return mat;
+}
+function searchBlock(corps: Corps, size: number, start: Locator = FindSpawn): RoomPosition | null {
+    const mat = getBuildMap(corps);
     // console.log(JSON.stringify(mat))
     const s = start(corps);
-    const visited = new Set<number>();
-    const next = surrounding(s.x, s.y);
+    const visited = _.times(50, () => _.times(50, _.constant(0)));
+    const next: [number, number][] = [[s.x, s.y]];
 
     var count = 0
     var p: [number, number] | undefined = undefined;
     while (next.length) {
         p = next.shift()!;
-        console.log(p, mat[p[0]][p[1]], count++, visited.size, next.length)
+        console.log(p, mat[p[0]][p[1]], count++, next.length)
         if (mat[p[0]][p[1]] >= size)
             return corps.baseRoom.getPositionAt(p[0], p[1]);
-        visited.add(p![0] * 50 + p![1]);
-        next.push(..._.filter(surrounding(p[0], p[1]), pos => !visited.has(pos[0] * 50 + pos[1])));
+        next.push(..._(surrounding(p[0], p[1]))
+            .filter(pos => visited[pos[0]][pos[1]]++ == 0)
+            .value());
     }
     return null;
 }
@@ -227,7 +310,7 @@ export const StandernProjects: Projects = {
         design: Combine(AtEverySource(Cover, STRUCTURE_ROAD), Cover(FindController, STRUCTURE_ROAD), Cover(FindSpawn, STRUCTURE_ROAD))
     },
     extension1: {
-        premiss: [Finished("road"), Level(2)],
+        premiss: [Finished("keyStructRoadCover"), Level(2)],
         design: BuildExtensionGroup()
     },
     extension2: {
@@ -258,6 +341,10 @@ export const StandernProjects: Projects = {
         premiss: [Level(4)],
         design: BuildStorage()
     },
+    heatmapRoad: {
+        premiss: [Finished('extension3')],
+        design: HeatmapRoadUpdate()
+    },
     tower1: {
         premiss: [Finished("storage"), Level(4)],
         design: BuildTower()
@@ -265,12 +352,33 @@ export const StandernProjects: Projects = {
     mainLink: {
         premiss: [Finished("storage"), Level(5)],
         design: BuildLink(CloseTo(corps => corps.baseRoom.storage!.pos))
-    }
+    },
+    firstLink: {
+        premiss: [Finished("mainLink"), Level(5)],
+        design: BuildSourceLink()
+    },
+    tower2: {
+        premiss: [Finished("firstLink"), Level(5)],
+        design: BuildTower(FindController)
+    },
+    heatmapRoadAddition1: {
+        premiss: [Finished('extension6')],
+        design: HeatmapRoadUpdate("heatmapRoad")
+    },
+    extractors: {
+        premiss: [Level(6)],
+        design: AtEveryMineral(Build, STRUCTURE_EXTRACTOR)
+    },
+    terminal: {
+        premiss: [Level(6)],
+        design: Build(CloseTo(corps => corps.baseRoom.storage!.pos), STRUCTURE_TERMINAL)
+    },
 }
 
 export function Architect(projects: Projects): Policy {
     return (corps: Corps) => {
         const heathBlueprints = new Set<string>();
+        const building: string[] = [];
         _.forIn(corps.memory.blueprints, (blueprint, name) => {
             bindPos(blueprint);
             if (isCompete(blueprint)) {
@@ -279,12 +387,18 @@ export function Architect(projects: Projects): Policy {
                 blueprint.completed = true;
             }
             else {
-                console.log(`building ${name}`)
+                building.push(name);
                 mark(blueprint);
             }
         });
         designAvailableProjects(projects, corps, heathBlueprints);
+        printBuilding(building, corps);
     }
+}
+
+function printBuilding(building: string[], corps: Corps) {
+    if (building.length && Game.time % 5 == 0)
+        console.log(`[${corps.name}] building ${building.join(', ')}`);
 }
 
 function designAvailableProjects(projects: Dictionary<Project>, corps: Corps, heathBlueprints: Set<string>) {
