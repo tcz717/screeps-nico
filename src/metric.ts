@@ -22,7 +22,7 @@ function updateHeatMap(corps: Corps) {
     const max = _(corps.baseRoom.memory.heatMap).values().max() || 0;
     if (max > 1000) {
         const ratio = 1000 / max;
-        corps.baseRoom.memory.heatMap = _(corps.baseRoom.memory.heatMap).mapValues(n => _.floor(n * ratio)).pickBy().value();
+        (corps.baseRoom.memory.heatMap as any) = _(corps.baseRoom.memory.heatMap).mapValues(n => _.floor(n * ratio)).pickBy().value();
     }
 }
 

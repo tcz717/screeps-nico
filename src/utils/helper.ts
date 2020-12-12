@@ -87,7 +87,7 @@ export function isStorable(struct: Structure | null | undefined): struct is Stor
     return getResourceTotal(struct) < getResourceCapacity(struct);
 }
 export function isLoadable(struct: Structure | Tombstone | null, resource: ResourceConstant): struct is Storable {
-    return getResourceAmount(struct, resource) > 0;
+    return (!(struct instanceof StructureSpawn)) && getResourceAmount(struct, resource) > 0;
 }
 export function isLoadableAny(struct: Structure | Tombstone | null): boolean {
     return getResourceTotal(struct) > 0;
@@ -100,5 +100,5 @@ export function isLoadableContainerAny(struct: Structure | null): boolean {
 }
 
 export function isExtractor(s: AnyOwnedStructure): boolean {
-    return s instanceof StructureExtractor && s.cooldown == undefined;
+    return s instanceof StructureExtractor && s.pos.lookFor(LOOK_MINERALS)[0].mineralAmount > 0;;
 }

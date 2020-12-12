@@ -263,6 +263,7 @@ export const DefaultPolicySet: PolicySet = {
         });
     },
     Charge: (corps: Corps) => {
+        // if (corps.baseRoom.controller!.level < 3) return;
         const center = _.get(corps.baseRoom.storage, 'pos', corps.spawns[0].pos);
         _.forEach(corps.baseRoom.find<Structure>(FIND_MY_STRUCTURES), s => {
             if (isEnergyContainer(s) && s.energy < s.energyCapacity) {

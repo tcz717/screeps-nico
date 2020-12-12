@@ -373,6 +373,10 @@ export const StandernProjects: Projects = {
         premiss: [Level(6)],
         design: Build(CloseTo(corps => corps.baseRoom.storage!.pos), STRUCTURE_TERMINAL)
     },
+    extractorsRoadCover: {
+        premiss: [Finished("extractors")],
+        design: AtEveryMineral(Cover, STRUCTURE_ROAD)
+    },
 }
 
 export function Architect(projects: Projects): Policy {
