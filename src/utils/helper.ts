@@ -76,7 +76,7 @@ export function isMineralStorage(target: Structure | null): target is Storable {
     return target instanceof StructureContainer || target instanceof StructureStorage;
 }
 export function isMineable(sourceId: string | undefined) {
-    const source = Game.getObjectById<RoomObject>(sourceId);
+    const source = Game.getObjectById<RoomObject>(sourceId as Id<RoomObject>);
     if (source instanceof Source)
         return source.energy > 0;
     else if (source instanceof Mineral)

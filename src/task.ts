@@ -356,7 +356,7 @@ export abstract class ResourceTask extends WorkTask {
         this.resource = resource;
     }
     mainAction(excutor: Worker): TaskResult {
-        const target = Game.getObjectById<Structure>(this.memory.targetId);
+        const target = Game.getObjectById<Structure>(this.memory.targetId as Id<Structure>);
         if (!target || excutor instanceof StructureTower)
             return TaskResult.Fatal;
         let result = this.useAction(excutor, target);
@@ -544,7 +544,7 @@ export class UpgradeControllerTask extends ResourceTask {
         return excutor.upgradeController(<StructureController>target);
     }
     isFinished(): boolean {
-        const controller = Game.getObjectById<StructureController>(this.memory.targetId);
+        const controller = Game.getObjectById<StructureController>(this.memory.targetId as Id<StructureController>);
         return !controller || (this.memory.safeTicks && controller.ticksToDowngrade > this.memory.safeTicks) || false;
     }
 }
@@ -586,7 +586,7 @@ abstract class CreepTowerTask extends ResourceTask {
         return super.canExcute(excutor);
     }
     canTowerExcute(tower: StructureTower): number {
-        const target = Game.getObjectById<Structure>(this.memory.targetId);
+        const target = Game.getObjectById<Structure>(this.memory.targetId as Id<Structure>);
         if (tower.energy < TOWER_ENERGY_COST || !target)
             return 0;
         return 50 - _.clamp(tower.pos.getRangeTo(target), TOWER_OPTIMAL_RANGE, TOWER_FALLOFF_RANGE) / 3;
@@ -594,7 +594,7 @@ abstract class CreepTowerTask extends ResourceTask {
     mainAction(excutor: Worker): TaskResult {
         if (excutor instanceof Creep)
             return super.mainAction(excutor);
-        const target = Game.getObjectById<Structure>(this.memory.targetId);
+        const target = Game.getObjectById<Structure>(this.memory.targetId as Id<Structure>);
         if (!target)
             return TaskResult.Fatal;
         const result = this.useAction(excutor, target);

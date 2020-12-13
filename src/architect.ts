@@ -271,7 +271,7 @@ function bindPos(blueprint: Blueprint) {
 }
 function isCompete(blueprint: Blueprint): boolean {
     return blueprint.completed || _.every(blueprint, (node: Node) => {
-        if (Game.getObjectById(node.id))
+        if (Game.getObjectById(node.id as Id<RoomObject>))
             return true;
         const structs = node.pos.findInRange(FIND_STRUCTURES, 0, { filter: (s: AnyStructure) => s.structureType == node.type });
         node.id = _.get(structs, [0, "id"]);
@@ -280,7 +280,7 @@ function isCompete(blueprint: Blueprint): boolean {
 }
 function mark(blueprint: Blueprint): void {
     _.forEach(blueprint, n => {
-        if (Game.getObjectById(n.id))
+        if (Game.getObjectById(n.id as Id<RoomObject>))
             return;
         const result = n.pos.createConstructionSite(n.type);
     })
