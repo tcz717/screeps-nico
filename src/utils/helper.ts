@@ -87,7 +87,7 @@ export function isStorable(struct: Structure | null | undefined): struct is Stor
     return getResourceTotal(struct) < getResourceCapacity(struct);
 }
 export function isLoadable(struct: Structure | Tombstone | null, resource: ResourceConstant): struct is Storable {
-    return (!(struct instanceof StructureSpawn)) && getResourceAmount(struct, resource) > 0;
+    return (!(struct instanceof StructureSpawn)) && (!(struct instanceof StructureExtension)) && getResourceAmount(struct, resource) > 0;
 }
 export function isLoadableAny(struct: Structure | Tombstone | null): boolean {
     return getResourceTotal(struct) > 0;
