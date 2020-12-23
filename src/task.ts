@@ -194,6 +194,7 @@ export class SpawnCreepTask extends Task {
 /** 需要WORK，CARRY和MOVE三个组件完成的任务 */
 abstract class WorkTask extends Task {
     emoji?: string;
+    greedy = false; // TODO how to use?
     constructor(memory: TaskMemory) {
         super(memory);
     }
@@ -277,11 +278,11 @@ export class HarvestTask extends WorkTask {
             if (!this.memory.reachTick)
                 this.memory.reachTick = Game.time;
             if (!isCreepFull(excutor))
-                return TaskResult.Acceptable;
+                return TaskResult.Working;
             else
                 return TaskResult.Finished;
         }
-        else if (result == ERR_TIRED)
+        else if (result == ERR_NOT_ENOUGH_RESOURCES)
             return TaskResult.Acceptable;
         else if (result == ERR_NOT_IN_RANGE) {
             this.memory.child = [MoveTask.moveTo(source.pos, excutor).memory];
@@ -350,7 +351,6 @@ export class PickTask extends WorkTask {
 export abstract class ResourceTask extends WorkTask {
     resource: ResourceConstant;
     range = 1;
-    greedy = false;
     constructor(memory: TaskMemory, resource: ResourceConstant = RESOURCE_ENERGY) {
         super(memory);
         this.resource = resource;
@@ -365,7 +365,7 @@ export abstract class ResourceTask extends WorkTask {
         }
 
         if (result == OK)
-            return this.greedy ? TaskResult.Working : TaskResult.Finished;
+            return TaskResult.Working;
         else if (result == ERR_NOT_ENOUGH_RESOURCES) {
             return this.getResource(excutor);
         }
@@ -388,7 +388,8 @@ export abstract class ResourceTask extends WorkTask {
     }
 
     protected getResourceTask(excutor: Creep): TaskMemory | undefined {
-        const storage = excutor.pos.findClosestByPath(FIND_STRUCTURES, { filter: s => isLoadable(s, this.resource) });
+        const ruin = excutor.pos.findClosestByRange(FIND_RUINS, { filter: s => isLoadable(s, this.resource) });
+        const storage = ruin || excutor.pos.findClosestByPath(FIND_STRUCTURES, { filter: s => isLoadable(s, this.resource) });
         if (storage) {
             return {
                 type: TaskType.Load,

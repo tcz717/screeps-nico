@@ -211,7 +211,7 @@ export const DefaultPolicySet: PolicySet = {
             }, upgrader.length > 0 ? upgrader.length : 2);
     },
     Build: (corps: Corps) => {
-        _.forEach(corps.baseRoom.find(FIND_CONSTRUCTION_SITES), s => {
+        _.forEach(corps.baseRoom.find(FIND_MY_CONSTRUCTION_SITES), s => {
             corps.scheduler.pushTask({
                 type: TaskType.Build,
                 targetId: s.id,
@@ -292,6 +292,17 @@ export const DefaultPolicySet: PolicySet = {
     PickupDrop: (corps: Corps) => {
         if (!isStorable(corps.baseRoom.storage) || corps.baseRoom.find(FIND_HOSTILE_CREEPS).length)
             return;
+        _.forEach(corps.baseRoom.find(FIND_RUINS, { filter: isLoadableAny }), t =>
+            _(t.store).pickBy().forIn((v, r) =>
+                corps.scheduler.pushTask({
+                    type: TaskType.Transfer,
+                    priority: PRIORITY_NORMAL,
+                    tag: t.id,
+                    resource: r as ResourceConstant,
+                    from: t.id,
+                    targetId: corps.baseRoom.storage!.id,
+                }))
+        );
         _.forEach(corps.baseRoom.find(FIND_TOMBSTONES, { filter: isLoadableAny }), t =>
             _(t.store).pickBy().forIn((v, r) =>
                 corps.scheduler.pushTask({

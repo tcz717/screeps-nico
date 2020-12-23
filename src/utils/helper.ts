@@ -45,7 +45,7 @@ export function isIdle(creep: Creep): boolean {
 
 export type EnergyContainer = StructureExtension | StructureSpawn | StructureTower;
 export type Storable = StructureContainer | StructureStorage | StructureLink;
-export function getResourceAmount(struct: Structure | Tombstone | null | undefined, resource: ResourceConstant): number {
+export function getResourceAmount(struct: Structure | Tombstone | Ruin | null | undefined, resource: ResourceConstant): number {
     if (struct instanceof StructureLink && resource == RESOURCE_ENERGY)
         return struct.energy;
     return _.get(struct, ["store", resource], 0);
@@ -86,8 +86,11 @@ export function isMineable(sourceId: string | undefined) {
 export function isStorable(struct: Structure | null | undefined): struct is Storable {
     return getResourceTotal(struct) < getResourceCapacity(struct);
 }
-export function isLoadable(struct: Structure | Tombstone | null, resource: ResourceConstant): struct is Storable {
-    return (!(struct instanceof StructureSpawn)) && (!(struct instanceof StructureExtension)) && getResourceAmount(struct, resource) > 0;
+export function isLoadable(struct: Structure | Tombstone | Ruin | null, resource: ResourceConstant): struct is Storable | Ruin {
+    if ((struct instanceof StructureSpawn) || (struct instanceof StructureExtension)) {
+        return false;
+    }
+    return getResourceAmount(struct, resource) > 0;
 }
 export function isLoadableAny(struct: Structure | Tombstone | null): boolean {
     return getResourceTotal(struct) > 0;
