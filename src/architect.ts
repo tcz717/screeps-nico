@@ -278,13 +278,24 @@ function isCompete(blueprint: Blueprint): boolean {
         return structs.length;
     })
 }
+
+function isBuilding(type: BuildableStructureConstant, pos: RoomPosition): boolean {
+    const structs = pos.look();
+    for (let s of structs) {
+        if (s.constructionSite?.structureType == type || s.structure?.structureType == type) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function mark(blueprint: Blueprint): void {
     _.forEach(blueprint, n => {
         if (Game.getObjectById(n.id as Id<RoomObject>))
             return;
         const result = n.pos.createConstructionSite(n.type);
-        if (result != OK) {
-            console.warn(`Failed to mark construction site at ${n.pos} for ${n.type}: ${result}`);
+        if (result != OK && !isBuilding(n.type, n.pos)) {
+            console.log(`Failed to mark construction site at ${n.pos} for ${n.type}: ${result}`);
         }
     })
 }
